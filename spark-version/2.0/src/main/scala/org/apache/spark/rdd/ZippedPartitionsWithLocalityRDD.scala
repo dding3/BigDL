@@ -69,6 +69,7 @@ class ZippedPartitionsWithLocalityRDD[A: ClassTag, B: ClassTag, V: ClassTag](
         }
         p += 1
       }
+
       if (matchPartition != null) {
         parts(i) =
           new ZippedPartitionsLocalityPartition(i, Array(i, matchPartition._1), rdds, locs)
