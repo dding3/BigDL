@@ -20,6 +20,7 @@ import java.util.concurrent.{Callable, Executors, Future, ThreadFactory}
 
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
+
 import com.intel.analytics.bigdl.utils.Engine
 import org.apache.commons.lang.exception.ExceptionUtils
 import org.apache.log4j.Logger

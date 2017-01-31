@@ -508,7 +508,6 @@ class DistriOptimizer[T: ClassTag] (
   val metrics = new Metrics
 
   private var models: RDD[DistriOptimizer.Cache[T]] = null
-
   /**
    * Clean some internal states, so this or other optimizers can run optimize again
    *

@@ -55,7 +55,6 @@ class ZippedPartitionsWithLocalityRDD[A: ClassTag, B: ClassTag, V: ClassTag](
     })
     val nonmatchPartitionId = new ArrayBuffer[Int]()
     val parts = new Array[Partition](numParts)
-
     (0 until  numParts).foreach { i =>
       val curPrefs = rdds(0).context.getPreferredLocs(rdds(0), i).map(_.host).distinct
       var p = 0
@@ -69,7 +68,6 @@ class ZippedPartitionsWithLocalityRDD[A: ClassTag, B: ClassTag, V: ClassTag](
         }
         p += 1
       }
-
       if (matchPartition != null) {
         parts(i) =
           new ZippedPartitionsLocalityPartition(i, Array(i, matchPartition._1), rdds, locs)
