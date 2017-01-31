@@ -61,7 +61,6 @@ abstract class Optimizer[T: ClassTag, D](
   // TODO: Remove below code to DistriOptimizer after disableCheckSingleton is not supported
   protected var checkSingleton = System.getProperty("bigdl.check.singleton",
     true.toString).toBoolean
-
   def setValidation(trigger: Trigger, dataset: DataSet[MiniBatch[T]],
     vMethods : Array[ValidationMethod[T]])
   : this.type = {
