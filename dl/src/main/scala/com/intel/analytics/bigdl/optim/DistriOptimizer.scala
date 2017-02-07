@@ -110,11 +110,18 @@ object DistriOptimizer {
         driverState[Int]("neval"), wallClockTime)
       val lossSum = sc.accumulator(0.0, "loss sum")
       val recordsNum = sc.accumulator(0, "record number")
-      metrics.set("computing time for each node", mutable.ArrayBuffer[Double](), sc)
+      metrics.set("data prepare average", 0.0, sc, partitionNum)
+//      metrics.set("computing time for each node", mutable.ArrayBuffer[Double](), sc)
       metrics.set("computing time average", 0.0, sc, partitionNum)
       metrics.set("aggregate gradient time", 0.0, sc, partitionNum)
       metrics.set("get weights average", 0.0, sc, partitionNum)
-      metrics.set("get weights for each node", mutable.ArrayBuffer[Double](), sc)
+//      metrics.set("get weights for each node", mutable.ArrayBuffer[Double](), sc)
+      metrics.set("put gradients average", 0.0, sc, partitionNum)
+//      metrics.set("put gradients for each node", mutable.ArrayBuffer[Double](), sc)
+      metrics.set("put weights average", 0.0, sc, partitionNum)
+//      metrics.set("put weights for each node", mutable.ArrayBuffer[Double](), sc)
+      metrics.set("get gradients1 average", 0.0, sc, partitionNum)
+      metrics.set("get gradients2 average", 0.0, sc, partitionNum)
 
       val driverMetrics = metrics
       val start = System.nanoTime()
@@ -123,8 +130,8 @@ object DistriOptimizer {
         models, true)(
         (data, modelIter) => {
           val cached = modelIter.next()
-          val syWStart = System.nanoTime()
-          val weightsResult = parameters.getWeights(cached.modelWeights.head)
+
+          val tensorConstruct = System.nanoTime()
           val tensorBuffer = new Array[(Tensor[T], Tensor[T])](_subModelNumber)
           tasks += Engine.default.invoke(() => {
             val batch = data.next()
@@ -142,10 +149,14 @@ object DistriOptimizer {
             }
           })
           Engine.default.sync(tasks)
+          driverMetrics.add("data prepare average", System.nanoTime() - tensorConstruct)
+          
+          val syWStart = System.nanoTime()
+          val weightsResult = parameters.getWeights(cached.modelWeights.head)
           weightsResult.waitResult()
           val weightSyncTime = System.nanoTime() - syWStart
           driverMetrics.add("get weights average", weightSyncTime)
-          driverMetrics.add("get weights for each node", weightSyncTime)
+//          driverMetrics.add("get weights for each node", weightSyncTime)
           tasks.clear()
 
           // ======================Start train models===================================
@@ -171,7 +182,7 @@ object DistriOptimizer {
           ), timeout)
           val computingTime = System.nanoTime() - time
           driverMetrics.add("computing time average", computingTime)
-          driverMetrics.add("computing time for each node", computingTime)
+//          driverMetrics.add("computing time for each node", computingTime)
 
           val finishedThreads = trainingThreads.filter(!_.isCancelled).map(_.get())
           recordsNum += finishedThreads.size * tensorBuffer.head._2.size(1)
@@ -211,7 +222,10 @@ object DistriOptimizer {
             driverMetrics.add("aggregate gradient time", System.nanoTime() - time)
           }
 
+          time = System.nanoTime()
           parameters.putGradients(cached.gradient)
+          driverMetrics.add("put gradients average", System.nanoTime() - time)
+//          driverMetrics.add("put gradients for each node", System.nanoTime() - time)
           tasks ++= Engine.default.invoke((0 until _subModelNumber).map(i => () => {
             cached.localModels(i).training()
             cached.localModels(i).zeroGradParameters()
@@ -231,7 +245,10 @@ object DistriOptimizer {
           optimMethod.optimize(_ => (ev.fromType(value), parameters.gradientPartition),
             parameters.weightPartition, modelCache.localStates.head, modelCache.localStates.head)
 
+          val time = System.nanoTime()
           parameters.sendWeightPartition()
+          driverMetrics.add("put weights average", System.nanoTime() - time)
+//          driverMetrics.add("put weights for each node", System.nanoTime() - time)
           Iterator.empty
         }).count()
 

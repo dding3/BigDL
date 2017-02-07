@@ -162,7 +162,6 @@ class AllReduceParameter[T: ClassTag](id: Long, partitionNum: Int,
   def aggregrateGradientPartition(): Unit = {
     val bm = SparkEnv.get.blockManager
     require(partitionId < partitionNum)
-    val params = new Array[CompressedTensor[T]](partitionNum)
     val sgThreads = (0 until partitionNum).map(pid => {
       new Callable[Int] {
         override def call(): Int = {
@@ -182,7 +181,9 @@ class AllReduceParameter[T: ClassTag](id: Long, partitionNum: Int,
       }
     })
     syncPool.invokeAll(sgThreads.asJava)
+  }
 
+  def aggregrateGradientParition2(params: Array[CompressedTensor[T]]): Unit = {
     val length = taskSize + (if (partitionId < extraSize) 1 else 0)
     val poolSize = Engine.default.getPoolSize
     val innerTaskSize = length / poolSize
