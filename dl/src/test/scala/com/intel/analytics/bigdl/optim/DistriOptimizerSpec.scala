@@ -34,7 +34,7 @@ object DistriOptimizerSpec {
   val input2: Tensor[Double] = Tensor[Double](Storage[Double](Array(1.0, 0.0, 1.0, 0.0)))
   val output2 = 1.0
   var plusOne = 0.0
-  val nodeNumber = 4
+  val nodeNumber = 1
   val coreNumber = 4
   Engine.init(nodeNumber, coreNumber, true)
 
@@ -103,7 +103,8 @@ class DistriOptimizerSpec extends FlatSpec with Matchers with BeforeAndAfter {
     val conf = new SparkConf().setMaster("local[1]").setAppName("RDDOptimizerSpec")
     sc = new SparkContext(conf)
 
-    val rdd = sc.parallelize(1 to (256 * nodeNumber), nodeNumber).map(prepareData)
+//    val rdd = sc.parallelize(1 to (256 * nodeNumber), nodeNumber).map(prepareData)
+val rdd = sc.parallelize(1 to (256 * nodeNumber), nodeNumber*coreNumber).map(prepareData)
 
     dataSet = new DistributedDataSet[MiniBatch[Double]] {
       override def originRDD(): RDD[_] = rdd
