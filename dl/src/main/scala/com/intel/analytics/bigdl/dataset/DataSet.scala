@@ -305,7 +305,8 @@ object DataSet {
       .getOrElse(throw new RuntimeException("can't get node number? Have you initialized?"))
     val coreNumber = Engine.coreNumber()
     new CachedDistriDataSet[T](
-      data.coalesce(nodeNumber, true)
+//      data.coalesce(nodeNumber, true)
+      data.repartition(nodeNumber*coreNumber)
         .mapPartitions(iter => {
           Iterator.single(iter.toArray)
         }).setName("cached dataset")
