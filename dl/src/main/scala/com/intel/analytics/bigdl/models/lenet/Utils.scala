@@ -38,7 +38,7 @@ object Utils {
     batchSize: Int = 12,
     learningRate: Double = 0.05,
     maxEpoch: Int = 15,
-    coreNumber: Int = -1,
+    partitionNumber: Int = -1,
     nodeNumber: Int = -1,
     env: String = "local",
     overWriteCheckpoint: Boolean = false
@@ -71,10 +71,9 @@ object Utils {
     opt[Int]('e', "maxEpoch")
       .text("epoch numbers")
       .action((x, c) => c.copy(maxEpoch = x))
-
-    opt[Int]('c', "core")
-      .text("cores number on each node")
-      .action((x, c) => c.copy(coreNumber = x))
+    opt[Int]('p', "partitionNum")
+      .text("partition number")
+      .action((x, c) => c.copy(partitionNumber = x))
       .required()
     opt[Int]('n', "node")
       .text("node number to train the model")
@@ -102,7 +101,7 @@ object Utils {
   case class TestParams(
     folder: String = "./",
     model: String = "",
-    coreNumber: Int = -1,
+    partitionNumber: Int = -1,
     nodeNumber: Int = -1,
     batchSize: Int = 128,
     env: String = "local"
@@ -117,9 +116,9 @@ object Utils {
       .text("model snapshot location")
       .action((x, c) => c.copy(model = x))
       .required()
-    opt[Int]('c', "core")
-      .text("cores number on each node")
-      .action((x, c) => c.copy(coreNumber = x))
+    opt[Int]('p', "partitionNum")
+      .text("partition number")
+      .action((x, c) => c.copy(partitionNumber = x))
       .required()
     opt[Int]('n', "nodeNumber")
       .text("nodes number to train the model")

@@ -60,7 +60,6 @@ object DistriOptimizer {
 
   private[optim] def optimize[T: ClassTag](
     dataset: DistributedDataSet[MiniBatch[T]],
-    coresPerNode: Int,
     state: Table,
     endWhen: Trigger,
     metrics: Metrics,
@@ -81,7 +80,7 @@ object DistriOptimizer {
     val driverState = T("epoch" -> state.get[Int]("epoch").getOrElse(1),
       "neval" -> state.get[Int]("neval").getOrElse(1))
     val _subModelNumber = Engine.getEngineType match {
-      case MklBlas => coresPerNode
+      case MklBlas => Engine.coreNumber()
       case _ => throw new IllegalArgumentException()
     }
     var accumulateCount = 0
@@ -133,7 +132,7 @@ object DistriOptimizer {
             require(batch.data.size(1) == batch.labels.size(1),
               "data and label batch size not match")
             require(batch.data.size(1) >= _subModelNumber,
-              "total batch size should be divided by total core number")
+              "total batch size should be divided by spark.task.cpus")
             val stackSize = batch.data.size(1) / _subModelNumber
             while (b < _subModelNumber) {
               tensorBuffer(b) = (batch.data.narrow(1, b * stackSize + 1, stackSize),
@@ -293,7 +292,6 @@ object DistriOptimizer {
           validationTrigger,
           validationDataSet,
           validationMethods,
-          coresPerNode,
           models,
           wallClockTime,
           driverState
@@ -343,20 +341,15 @@ object DistriOptimizer {
     criterion: Criterion[T],
     state: Table,
     nodeNumber: Int,
-    coresPerNode: Int,
     checkSingleton: Boolean,
     parameters: AllReduceParameter[T]
     )(implicit ev: TensorNumeric[T]) = {
     val sc = dataset.originRDD().sparkContext
     val broadcast = sc.broadcast((model, criterion, state))
     val _subModelNumber = Engine.getEngineType match {
-      case MklBlas => coresPerNode
+      case MklBlas => Engine.coreNumber()
       case _ => throw new IllegalArgumentException
     }
-
-    require(dataset.originRDD().partitions.length == nodeNumber,
-      s"Passed in rdd partition number ${dataset.originRDD().partitions.length}" +
-        s" is not equal to configured node number ${nodeNumber}")
 
     val partitionNum = dataset.originRDD().partitions.length
     val comupteThresholdbatchSize = state.get[Int]("comupteThresholdbatchSize").get
@@ -410,7 +403,6 @@ object DistriOptimizer {
     validationTrigger: Option[Trigger],
     validationDataSet: Option[DataSet[MiniBatch[T]]],
     validationMethods: Option[Array[ValidationMethod[T]]],
-    coresPerNode: Int,
     models: RDD[Cache[T]],
     wallClockTime: Long,
     state: Table
@@ -426,7 +418,7 @@ object DistriOptimizer {
     val validateRDD = validationDataSet.get.toDistributed().data(train = false)
     logger.info(s"[Wall Clock ${wallClockTime / 1e9}s] Validate model...")
     val _subModelNumber = Engine.getEngineType match {
-      case MklBlas => coresPerNode
+      case MklBlas => Engine.coreNumber()
       case _ => throw new IllegalArgumentException
     }
     ZippedPartitionsWithLocalityRDD(models, validateRDD)((modelIter, dataIter) => {
@@ -519,19 +511,17 @@ class DistriOptimizer[T: ClassTag] private[optim](
 
     require(Engine.nodeNumber().isDefined, "Node number is not set")
     val nodeNumber = Engine.nodeNumber().get
-    val coresPerNode = Engine.coreNumber()
 
     val partitionNum = dataset.originRDD().partitions.length
     val size = model.getParameters()._1.nElement()
     val parameters = AllReduceParameter.newParameter(partitionNum, size)
 
     models = DistriOptimizer.initThreadModels(
-      model, dataset, criterion, state, nodeNumber, coresPerNode, checkSingleton, parameters)
+      model, dataset, criterion, state, nodeNumber, checkSingleton, parameters)
 
 
     DistriOptimizer.optimize(
       dataset,
-      coresPerNode,
       state,
       endWhen,
       metrics,

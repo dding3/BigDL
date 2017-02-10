@@ -282,11 +282,9 @@ object DataSet {
   def array[T: ClassTag](localData: Array[T], sc: SparkContext): DistributedDataSet[T] = {
     val nodeNumber = Engine.nodeNumber()
       .getOrElse(throw new RuntimeException("can't get node number? Have you initialized?"))
-    val coreNumber = Engine.coreNumber()
+
     new CachedDistriDataSet[T](
-      sc.parallelize(localData, nodeNumber * coreNumber)
-        // Keep this line, or the array will be send to worker every time
-        .coalesce(nodeNumber, true)
+        sc.parallelize(localData, Engine.partitionNumber.get)
         .mapPartitions(iter => {
           Iterator.single(iter.toArray)
         }).setName("cached dataset")
@@ -303,10 +301,8 @@ object DataSet {
   def rdd[T: ClassTag](data: RDD[T]): DistributedDataSet[T] = {
     val nodeNumber = Engine.nodeNumber()
       .getOrElse(throw new RuntimeException("can't get node number? Have you initialized?"))
-    val coreNumber = Engine.coreNumber()
     new CachedDistriDataSet[T](
-      data.coalesce(nodeNumber, true)
-        .mapPartitions(iter => {
+        data.mapPartitions(iter => {
           Iterator.single(iter.toArray)
         }).setName("cached dataset")
         .cache()
@@ -437,9 +433,8 @@ object DataSet {
     def files(url: String, sc: SparkContext, classNum: Int): DistributedDataSet[ByteRecord] = {
       val nodeNumber = Engine.nodeNumber()
         .getOrElse(throw new RuntimeException("can't get node number? Have you initialized?"))
-      val coreNumber = Engine.coreNumber()
       val rawData = sc.sequenceFile(url, classOf[Text], classOf[Text],
-        nodeNumber * coreNumber).map(image => {
+        Engine.partitionNumber.get).map(image => {
         ByteRecord(image._2.copyBytes(), readLabel(image._1).toFloat)
       }).filter(_.label <= classNum)
 

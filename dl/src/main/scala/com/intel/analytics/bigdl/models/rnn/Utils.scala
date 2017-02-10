@@ -39,7 +39,7 @@ object Utils {
     vocabSize: Int = 4000,
     bptt: Int = 4,
     nEpochs: Int = 30,
-    coreNumber: Int = -1)
+    partitionNumber: Int = -1)
 
   val trainParser = new OptionParser[TrainParams]("BigDL SimpleRNN Train Example") {
     opt[String]('f', "folder")
@@ -88,10 +88,10 @@ object Utils {
     opt[Int]('e', "nEpochs")
       .text("epoch numbers")
       .action((x, c) => c.copy(nEpochs = x))
-
-    opt[Int]('c', "core")
-      .text("cores number to train the model")
-      .action((x, c) => c.copy(coreNumber = x))
+    
+    opt[Int]('p', "partitionNum")
+      .text("partition number")
+      .action((x, c) => c.copy(partitionNumber = x))
       .required()
   }
 

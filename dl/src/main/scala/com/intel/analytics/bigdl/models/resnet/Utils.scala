@@ -31,7 +31,7 @@ object Utils {
     checkpoint: Option[String] = None,
     modelSnapshot: Option[String] = None,
     stateSnapshot: Option[String] = None,
-    coreNumber: Int = -1,
+    partitionNumber: Int = -1,
     nodeNumber: Int = -1,
     optnet: Boolean = false,
     depth: Int = 20,
@@ -60,9 +60,9 @@ object Utils {
     opt[String]("cache")
       .text("where to cache the model")
       .action((x, c) => c.copy(checkpoint = Some(x)))
-    opt[Int]('c', "core")
-      .text("cores number on each node")
-      .action((x, c) => c.copy(coreNumber = x))
+    opt[Int]('p', "partitionNum")
+      .text("partition number on each node")
+      .action((x, c) => c.copy(partitionNumber = x))
       .required()
     opt[Int]('n', "nodeNumber")
       .text("nodes number to train the model")

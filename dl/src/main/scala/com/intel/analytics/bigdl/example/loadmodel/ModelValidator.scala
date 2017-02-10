@@ -49,7 +49,7 @@ object ModelValidator {
     modelPath: String = "",
     batchSize: Int = 32,
     meanFile: Option[String] = None,
-    coreNumber: Int = Runtime.getRuntime().availableProcessors() / 2,
+    partitionNumber: Int = -1,
     nodeNumber: Int = -1,
     env: String = "local"
   )
@@ -87,9 +87,9 @@ object ModelValidator {
     opt[String]("meanFile")
       .text("mean file")
       .action((x, c) => c.copy(meanFile = Some(x)))
-    opt[Int]('c', "core")
-      .text("cores number to test the model")
-      .action((x, c) => c.copy(coreNumber = x))
+    opt[Int]('p', "partitionNum")
+      .text("partition number")
+      .action((x, c) => c.copy(partitionNumber = x))
     opt[Int]('n', "node")
       .text("node number to test the model")
       .action((x, c) => c.copy(nodeNumber = x))
@@ -108,8 +108,7 @@ object ModelValidator {
 
   def main(args: Array[String]): Unit = {
     testLocalParser.parse(args, TestLocalParams()).foreach(param => {
-      Engine.setCoreNumber(param.coreNumber)
-      val sc = Engine.init(param.nodeNumber, param.coreNumber, param.env == "spark")
+      val sc = Engine.init(param.nodeNumber, param.partitionNumber, param.env == "spark")
         .map(conf => {
           conf.setAppName("BigDL Image Classifier Example")
             .set("spark.akka.frameSize", 64.toString)

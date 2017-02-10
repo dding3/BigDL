@@ -39,7 +39,7 @@ object ImagePredictor {
 
   def main(args: Array[String]): Unit = {
     predictParser.parse(args, new PredictParams()).map(param => {
-      val scc = Engine.init(param.nodeNumber, param.coreNumber, true).map(conf => {
+    val scc = Engine.init(param.nodeNumber, param.partitionNumber, true).map(conf => {
         conf.setAppName("Predict with trained model")
           .set("spark.akka.frameSize", 64.toString)
           .set("spark.task.maxFailures", "1")
@@ -50,7 +50,7 @@ object ImagePredictor {
       val sqlContext = new SQLContext(sc)
 
       val model = loadModel(param)
-      val partitionNum = param.nodeNumber * param.coreNumber
+      val partitionNum = param.partitionNumber
       val valTrans = new SparkDLClassifier()
         .setInputCol("features")
         .setOutputCol("predict")

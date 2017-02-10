@@ -37,7 +37,7 @@ object TrainInceptionV1 {
   def main(args: Array[String]): Unit = {
     trainParser.parse(args, new TrainParams()).map(param => {
       val imageSize = 224
-      val sc = Engine.init(param.nodeNumber, param.coreNumber, param.env == "spark")
+      val sc = Engine.init(param.nodeNumber, param.partitionNum, param.env == "spark")
         .map(conf => {
           conf.setAppName("BigDL Inception v1 Train Example")
             .set("spark.task.maxFailures", "1")
@@ -50,7 +50,7 @@ object TrainInceptionV1 {
         imageSize,
         param.batchSize,
         param.nodeNumber,
-        param.coreNumber,
+        param.partitionNum,
         param.classNumber,
         1281167
       )
@@ -60,7 +60,7 @@ object TrainInceptionV1 {
         imageSize,
         param.batchSize,
         param.nodeNumber,
-        param.coreNumber,
+        param.partitionNum,
         param.classNumber,
         50000
       )

@@ -37,7 +37,8 @@ object Test {
 
   def main(args: Array[String]): Unit = {
     testParser.parse(args, new TestParams()).map(param => {
-      val sc = Engine.init(param.nodeNumber, param.coreNumber, param.env == "spark").map(conf => {
+      val sc = Engine.init(param.nodeNumber, param.partitionNumber, param.env == "spark")
+        .map(conf => {
         conf.setAppName("Test Lenet on MNIST")
           .set("spark.akka.frameSize", 64.toString)
           .set("spark.task.maxFailures", "1")
@@ -55,7 +56,6 @@ object Test {
         param.batchSize)
 
       val model = Module.load[Float](param.model)
-      Engine.setCoreNumber(param.coreNumber)
       val validator = Validator(model, validationSet)
       val result = validator.test(Array(new Top1Accuracy[Float]))
       result.foreach(r => {

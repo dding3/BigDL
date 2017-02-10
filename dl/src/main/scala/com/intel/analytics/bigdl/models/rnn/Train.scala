@@ -86,7 +86,7 @@ object Train {
           "dampening" -> param.dampening)
       }
 
-      Engine.init(1, param.coreNumber, false)
+      Engine.init(1, param.partitionNumber, false)
       val optimizer = Optimizer(
         model = model,
         dataset = trainSet,

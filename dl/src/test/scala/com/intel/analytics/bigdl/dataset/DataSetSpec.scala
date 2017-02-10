@@ -29,11 +29,11 @@ import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 
 class DataSetSpec extends FlatSpec with Matchers with BeforeAndAfter {
   var sc: SparkContext = null
+  var partitionNum: Int = 1
 
   before {
     val nodeNumber = 1
-    val coreNumber = 1
-    Engine.init(nodeNumber, coreNumber, true)
+    Engine.init(nodeNumber, partitionNum, true)
     sc = new SparkContext("local[1]", "DataSetSpec")
   }
 
