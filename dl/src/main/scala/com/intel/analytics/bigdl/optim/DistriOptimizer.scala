@@ -59,7 +59,6 @@ object DistriOptimizer {
 
   private[optim] def optimize[T: ClassTag](
     dataset: DistributedDataSet[MiniBatch[T]],
-    coresPerNode: Int,
     state: Table,
     endWhen: Trigger,
     metrics: Metrics,
@@ -331,7 +330,6 @@ object DistriOptimizer {
           validationTrigger,
           validationDataSet,
           validationMethods,
-          coresPerNode,
           models,
           wallClockTime,
           driverState
@@ -384,7 +382,6 @@ object DistriOptimizer {
     criterion: Criterion[T],
     state: Table,
     nodeNumber: Int,
-    coresPerNode: Int,
     checkSingleton: Boolean,
     parameters: AllReduceParameter[T],
     dummyData: RDD[Array[Int]]
@@ -463,7 +460,6 @@ object DistriOptimizer {
     validationTrigger: Option[Trigger],
     validationDataSet: Option[DataSet[MiniBatch[T]]],
     validationMethods: Option[Array[ValidationMethod[T]]],
-    coresPerNode: Int,
     models: RDD[Cache[T]],
     wallClockTime: Long,
     state: Table
@@ -479,7 +475,7 @@ object DistriOptimizer {
     val validateRDD = validationDataSet.get.toDistributed().data(train = false)
     logger.info(s"[Wall Clock ${wallClockTime / 1e9}s] Validate model...")
     val _subModelNumber = Engine.getEngineType match {
-      case MklBlas => coresPerNode
+      case MklBlas => Engine.coreNumber()
       case _ => throw new IllegalArgumentException
     }
     ZippedPartitionsWithLocalityRDD(models, validateRDD)((modelIter, dataIter) => {
@@ -583,28 +579,16 @@ class DistriOptimizer[T: ClassTag] (
 
     require(Engine.nodeNumber().isDefined, "Node number is not set")
     val nodeNumber = Engine.nodeNumber().get
-    val coresPerNode = Engine.coreNumber()
 
     val partitionNum = dataset.originRDD().partitions.length
     val size = model.getParameters()._1.nElement()
     val parameters = AllReduceParameter.newParameter(partitionNum, size)
-
-    val dummyData = dataset.originRDD().sparkContext
-      .parallelize(0 to 100000, nodeNumber * Engine.coreNumber)
-      // Keep this line, or the array will be send to worker every time
-      .coalesce(nodeNumber, true)
-      .mapPartitions(iter => {
-        Iterator.single(iter.toArray)
-      }).setName("dummyData dataset").cache()
-    dummyData.count()
-    
-    models = DistriOptimizer.initThreadModels(model, dataset, criterion, state,
-      nodeNumber, coresPerNode, checkSingleton, parameters, dummyData)
+    models = DistriOptimizer.initThreadModels(
+      model, dataset, criterion, state, nodeNumber, checkSingleton, parameters)
 
 
     DistriOptimizer.optimize(
       dataset,
-      coresPerNode,
       state,
       endWhen,
       metrics,

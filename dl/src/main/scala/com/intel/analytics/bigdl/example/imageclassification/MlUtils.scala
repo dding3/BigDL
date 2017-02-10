@@ -45,7 +45,7 @@ object MlUtils {
 
   case class PredictParams(
     folder: String = "./",
-    coreNumber: Int = 4,
+    partitionNumber: Int = 4,
     nodeNumber: Int = 1,
     batchSize: Int = 32,
     classNum: Int = 1000,
@@ -66,10 +66,9 @@ object MlUtils {
       .text("model snapshot location")
       .action((x, c) => c.copy(modelPath = x))
       .required()
-
-    opt[Int]('c', "core")
-      .text("cores number on each node")
-      .action((x, c) => c.copy(coreNumber = x))
+    opt[Int]('p', "partitionNum")
+      .text("partitionNum")
+      .action((x, c) => c.copy(partitionNumber = x))
 
     opt[Int]('n', "nodeNumber")
       .text("nodes number to train the model")

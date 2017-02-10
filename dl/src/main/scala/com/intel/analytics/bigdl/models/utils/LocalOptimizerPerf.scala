@@ -69,7 +69,8 @@ object LocalOptimizerPerf {
   }
 
   def performance(param: LocalOptimizerPerfParam): Unit = {
-    Engine.init(1, param.coreNumber, false)
+    System.setProperty("bigdl.localmode.coreNumber", param.coreNumber.toString)
+    Engine.init(1)
     val (_model, input) = param.module match {
       case "inception_v1" => (Inception_v1(1000), Tensor(param.batchSize, 3, 224, 224))
       case "inception_v2" => (Inception_v2(1000), Tensor(param.batchSize, 3, 224, 224))
@@ -97,8 +98,7 @@ object LocalOptimizerPerf {
       override def size(): Long = 100000
       override def shuffle(): Unit = {}
     }
-
-    Engine.setCoreNumber(param.coreNumber)
+    
     val optimizer = Optimizer(model, dummyDataSet, criterion)
     optimizer.setEndWhen(Trigger.maxIteration(param.iteration)).optimize()
   }

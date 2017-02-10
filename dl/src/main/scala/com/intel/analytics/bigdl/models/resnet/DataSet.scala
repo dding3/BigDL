@@ -25,10 +25,10 @@ trait ResNetDataSet {
   : DataSet[MiniBatch[Float]]
   def valDataSet(path: String, batchSize: Int, size: Int)
   : DataSet[MiniBatch[Float]]
-  def valDataSet(path: String, sc: SparkContext, imageSize: Int, batchSize: Int)
-  : DataSet[MiniBatch[Float]]
-  def trainDataSet(path: String, sc: SparkContext, imageSize: Int, batchSize: Int)
-  : DataSet[MiniBatch[Float]]
+  def valDataSet(path: String, sc: SparkContext, imageSize: Int,
+    batchSize: Int): DataSet[MiniBatch[Float]]
+  def trainDataSet(path: String, sc: SparkContext, imageSize: Int,
+    batchSize: Int): DataSet[MiniBatch[Float]]
 }
 
 object Cifar10DataSet extends ResNetDataSet {
@@ -58,7 +58,8 @@ object Cifar10DataSet extends ResNetDataSet {
       .transform(BGRImgToBatch(batchSize))
   }
 
-  override def valDataSet(path: String, sc: SparkContext, imageSize: Int, batchSize: Int)
+  override def valDataSet(path: String, sc: SparkContext, imageSize: Int,
+    batchSize: Int)
   : DataSet[MiniBatch[Float]] = {
 
     DataSet.array(Utils.loadTest(path), sc)
@@ -67,7 +68,8 @@ object Cifar10DataSet extends ResNetDataSet {
       .transform(BGRImgToBatch(batchSize))
   }
 
-  override def trainDataSet(path: String, sc: SparkContext, imageSize: Int, batchSize: Int)
+  override def trainDataSet(path: String, sc: SparkContext, imageSize: Int,
+    batchSize: Int)
   : DataSet[MiniBatch[Float]] = {
 
     DataSet.array(Utils.loadTrain(path), sc)

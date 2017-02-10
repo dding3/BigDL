@@ -117,8 +117,8 @@ class LocalOptimizerSpec extends FlatSpec with Matchers {
   import LocalOptimizerSpecModel._
 
   val nodeNumber = 4
-  val coreNumber = 4
-  Engine.init(nodeNumber, coreNumber, false)
+  System.setProperty("bigdl.localmode.coreNumber", "4")
+  Engine.init(nodeNumber)
 
   "Train model with CrossEntropy and SGD" should "be good" in {
     RandomGenerator.RNG.setSeed(1000)

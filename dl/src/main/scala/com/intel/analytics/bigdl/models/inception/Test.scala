@@ -35,7 +35,7 @@ object Test {
   def main(args: Array[String]) {
     testParser.parse(args, new TestParams()).foreach { param =>
       val batchSize = param.batchSize.getOrElse(128)
-      val sc = Engine.init(param.nodeNumber, param.coreNumber, param.env == "spark")
+      val sc = Engine.init(param.nodeNumber, param.partitionNum, param.env == "spark")
         .map(conf => {
           conf.setAppName("Test Inception on ImageNet")
           new SparkContext(conf)
@@ -46,7 +46,7 @@ object Test {
         imageSize,
         batchSize,
         param.nodeNumber,
-        param.coreNumber,
+        param.partitionNum,
         1000,
         50000
       )

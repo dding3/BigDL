@@ -29,6 +29,7 @@ import org.scalatest.{BeforeAndAfter, FlatSpec, Matchers}
 @com.intel.analytics.bigdl.tags.Serial
 class DataSetSpec extends FlatSpec with Matchers with BeforeAndAfter {
   var sc: SparkContext = null
+  var partitionNum: Int = 1
 
   before {
     val nodeNumber = 1

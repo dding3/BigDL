@@ -44,9 +44,9 @@ object DistriOptimizerPerf {
       .text("nodes to run the perf test")
       .action((v, p) => p.copy(nodeNumber = v))
       .required()
-    opt[Int]('c', "corePerNode")
-      .text("core number of each nodes")
-      .action((v, p) => p.copy(corePerNode = v))
+    opt[Int]('p', "partitionNum")
+      .text("partition number")
+      .action((v, p) => p.copy(partitionNum = v))
       .required()
     opt[Int]('e', "maxEpoch")
       .text("epoch numbers of the test")
@@ -92,9 +92,8 @@ object DistriOptimizerPerf {
   }
 
   def performance(param: DistriOptimizerPerfParam): Unit = {
-    val conf = Engine.init(param.nodeNumber, param.corePerNode, true).get
+    val conf = Engine.init(param.nodeNumber, param.partitionNum, true).get
       .setAppName("DistriOptimizer Performance Test")
-      .set("spark.task.cpus", param.corePerNode.toString)
 
     val (_model, input) = param.module match {
       case "inception_v1" => (Inception_v1(1000), Tensor(param.batchSize, 3, 224, 224))
@@ -138,7 +137,7 @@ case class DistriOptimizerPerfParam(
   batchSize: Int = 128,
   maxEpoch: Int = 5,
   nodeNumber: Int = -1,
-  corePerNode: Int = -1,
+  partitionNum: Int = -1,
   dataType: String = "float",
   module: String = "inception_v1",
   inputData: String = "random"

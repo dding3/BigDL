@@ -23,21 +23,18 @@ object Utils {
   private val logger = Logger.getLogger(getClass)
 
   def getBatchSize(totalBatch : Int): Int = {
-    val batchPerUnit = if (Engine.nodeNumber().isDefined) {
-      val nodeNumber = Engine.nodeNumber().get
-      val coreNumber = Engine.coreNumber()
-      logger.debug(s"node number: $nodeNumber, core number: $coreNumber")
-      require(totalBatch % (nodeNumber * coreNumber) == 0
-        , s"total batch size($totalBatch) can't be divided by node number($nodeNumber) * " +
-          s"core number($coreNumber), please change your batch size")
+    val batchPerUnit = if (Engine.partitionNumber.isDefined) {
+      val partitionNum = Engine.partitionNumber.get
+      require(totalBatch % (partitionNum) == 0, s"total batch size($totalBatch)" +
+        s"can't be divided by partitionNum ($partitionNum), please change your batch size")
 
-      if (totalBatch < nodeNumber * coreNumber * 2) {
+      if (totalBatch < partitionNum * 2) {
         logger.warn(s"Warning: for better training speed, " +
-          s"total batch size($totalBatch) is recommended to be at least two times of node number" +
-          s"($nodeNumber) * core number($coreNumber), please tune your batch size accordingly")
+          s"total batch size($totalBatch) is recommended to be at least two times of" +
+          s"partition number ($partitionNum), please tune your batch size accordingly")
       }
 
-      totalBatch / nodeNumber
+      totalBatch / partitionNum
     } else {
       totalBatch
     }

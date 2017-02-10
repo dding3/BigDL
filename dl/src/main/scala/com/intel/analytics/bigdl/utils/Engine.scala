@@ -230,14 +230,10 @@ object Engine {
   }
 
   private var physicalCoreNumber = {
-    val env = System.getenv("DL_CORE_NUMBER")
-    if(env == null) {
-      // We assume the HT is enabled
-      // Todo: check the Hyper threading
-      Runtime.getRuntime().availableProcessors() / 2
-    } else {
-      env.toInt
-    }
+    // We assume the HT is enabled
+    // Todo: check the Hyper threading
+    System.getProperty("bigdl.localmode.coreNumber",
+      (Runtime.getRuntime().availableProcessors() / 2).toString).toInt
   }
 
   def coreNumber(): Int = physicalCoreNumber
@@ -246,8 +242,9 @@ object Engine {
     require(n > 0)
     physicalCoreNumber = n
     _model = initModelThreadPool()
+    default = initDefaultThreadPool()
   }
-
+  
   // Set node number
   private var nodeNum: Option[Int] = if (System.getenv("DL_NODE_NUMBER") == null) {
     None
@@ -260,7 +257,19 @@ object Engine {
   private[bigdl] def setNodeNumber(n : Option[Int]): Unit = {
     nodeNum = n
   }
+  
+  private var partitionNum: Option[Int] = if (System.getenv("DL_PARTITION_NUMBER") == null) {
+    None
+  } else {
+    Some(System.getenv("DL_PARTITION_NUMBER").toInt)
+  }
 
+  def partitionNumber(): Option[Int] = partitionNum
+  
+  private[bigdl] def setPartitionNumber(n : Option[Int]): Unit = {
+    partitionNum = n
+  }
+  
   private val ERROR = "Please use bigdl.sh set the env. For spark application, please use " +
     "Engine.sparkConf() to initialize your sparkConf"
 
@@ -286,11 +295,6 @@ object Engine {
     this.engineType
   }
 
-  private val defaultPoolSize: Int = System.getProperty("bigdl.utils.Engine.defaultPoolSize",
-    (physicalCoreNumber * 50).toString).toInt
-
-  val default: ThreadPool = new ThreadPool(defaultPoolSize)
-
   @volatile private var _model: ThreadPool = initModelThreadPool()
 
   def model: ThreadPool = _model
@@ -301,7 +305,7 @@ object Engine {
     } else {
       physicalCoreNumber
     }
-
+    
     val model = new ThreadPool(modelPoolSize)
     model.setMKLThread(1)
     model
@@ -336,7 +340,7 @@ object Engine {
 
   def init(
     node: Int,
-    cores: Int,
+    partitionNum: Int = -1,
     onSpark: Boolean = false
   ): Option[SparkConf] = {
     setNodeAndCore(node, cores)

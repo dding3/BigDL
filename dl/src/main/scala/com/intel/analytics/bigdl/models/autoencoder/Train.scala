@@ -50,8 +50,8 @@ object Train {
 
   def main(args: Array[String]): Unit = {
     trainParser.parse(args, new TrainParams()).map(param => {
-
-      val sc = Engine.init(param.nodeNumber, param.coreNumber, param.env == "spark").map(conf => {
+    val sc = Engine.init(param.nodeNumber, param.partitionNumber, param.env == "spark")
+      .map(conf => {
         conf.setAppName("Train Autoencoder on MNIST")
           .set("spark.akka.frameSize", 64.toString)
           .set("spark.task.maxFailures", "1")

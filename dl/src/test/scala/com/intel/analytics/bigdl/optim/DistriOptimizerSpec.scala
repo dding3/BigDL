@@ -38,7 +38,7 @@ object DistriOptimizerSpec {
   val coreNumber = 4
   Engine.init(nodeNumber, coreNumber, true)
 
-  val batchSize = 2 * coreNumber
+  val batchSize = 8
 
   val prepareData: Int => (MiniBatch[Double]) = index => {
     val input = Tensor[Double]().resize(batchSize, 4)
