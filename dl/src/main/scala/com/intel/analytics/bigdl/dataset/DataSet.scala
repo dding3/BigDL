@@ -285,6 +285,7 @@ object DataSet {
 
     new CachedDistriDataSet[T](
         sc.parallelize(localData, Engine.partitionNumber.get)
+        .coalesce(Engine.partitionNumber().get, true)
         .mapPartitions(iter => {
           Iterator.single(iter.toArray)
         }).setName("cached dataset")
