@@ -43,7 +43,7 @@ object TrainInceptionV1 {
             .set("spark.task.maxFailures", "1")
           new SparkContext(conf)
         })
-
+      System.setProperty("bigdl.check.singleton", false.toString)
       val trainSet = ImageNet2012(
         param.folder + "/train",
         sc,
