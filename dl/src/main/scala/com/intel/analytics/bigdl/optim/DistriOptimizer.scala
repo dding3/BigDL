@@ -125,7 +125,6 @@ object DistriOptimizer {
       metrics.set("get gradients2 average", 0.0, sc, partitionNum)
       metrics.set("put weights-executor average", 0.0, sc, partitionNum)
       metrics.set("aggregate and put local gradients average", 0.0, sc, partitionNum)
-      
       val driverMetrics = metrics
       val start = System.nanoTime()
 
@@ -240,13 +239,15 @@ object DistriOptimizer {
             cached.localModels(i).training()
             cached.localModels(i).zeroGradParameters()
           }))
+          driverMetrics.add("put gradients", System.nanoTime() - time)
+          driverMetrics.add("task1 time for each node", System.nanoTime() - syWStart)
           Iterator(finishedThreads.size)
         }).reduce(_ + _)
+      val task1Driver = System.nanoTime() - start
 
       dropModelNumBatch += (driverSubModelNum - finishedModelNum)
       if (dropPercentage == 0 || finishedModelNum >= driverSubModelNum * (1-maxDropPercentage)) {
         val value = lossSum.value / finishedModelNum
-
         models.mapPartitions(modelIter => {
           val modelCache = modelIter.next()
           parameters.aggregrateGradientPartition()
@@ -271,7 +272,7 @@ object DistriOptimizer {
           driverMetrics.add("put weights-executor average", System.nanoTime() - time)
           Iterator.empty
         }).count()
-
+        val task2Driver = System.nanoTime() - task2Start
         accumulateCount += recordsNum.value
         val end = System.nanoTime()
         wallClockTime += end - start
