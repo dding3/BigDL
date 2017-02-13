@@ -115,6 +115,9 @@ object DistriOptimizer {
       metrics.set("aggregate gradient time", 0.0, sc, partitionNum)
       metrics.set("get weights average", 0.0, sc, partitionNum)
       metrics.set("get weights for each node", mutable.ArrayBuffer[Double](), sc)
+      metrics.set("task1 time for each node", mutable.ArrayBuffer[Double](), sc)
+      metrics.set("task2 time for each node", mutable.ArrayBuffer[Double](), sc)
+      metrics.set("put gradients", 0.0, sc, partitionNum)
 
       val driverMetrics = metrics
       val start = System.nanoTime()
@@ -210,19 +213,25 @@ object DistriOptimizer {
             driverMetrics.add("aggregate gradient time", System.nanoTime() - time)
           }
 
+          time = System.nanoTime()
           parameters.putGradients(cached.gradient)
           tasks ++= Engine.default.invoke((0 until _subModelNumber).map(i => () => {
             cached.localModels(i).training()
             cached.localModels(i).zeroGradParameters()
           }))
+          driverMetrics.add("put gradients", System.nanoTime() - time)
+          driverMetrics.add("task1 time for each node", System.nanoTime() - syWStart)
           Iterator(finishedThreads.size)
         }).reduce(_ + _)
+      val task1Driver = System.nanoTime() - start
 
       dropModelNumBatch += (driverSubModelNum - finishedModelNum)
       if (dropPercentage == 0 || finishedModelNum >= driverSubModelNum * (1-maxDropPercentage)) {
         val value = lossSum.value / finishedModelNum
+        val task2Start = System.nanoTime()
         models.mapPartitions(modelIter => {
           val modelCache = modelIter.next()
+          val task2Work = System.nanoTime()
           parameters.aggregrateGradientParition()
           parameters.gradientPartition.div(ev.fromType(finishedModelNum))
           modelCache.localStates.head("neval") = driverState[Int]("neval")
@@ -231,9 +240,10 @@ object DistriOptimizer {
             parameters.weightPartition, modelCache.localStates.head, modelCache.localStates.head)
 
           parameters.sendWeightPartition()
+          driverMetrics.add("task2 time for each node", System.nanoTime() - task2Work)
           Iterator.empty
         }).count()
-
+        val task2Driver = System.nanoTime() - task2Start
         accumulateCount += recordsNum.value
         val end = System.nanoTime()
         wallClockTime += end - start
@@ -241,7 +251,9 @@ object DistriOptimizer {
           s"Throughput is ${recordsNum.value / ((end - start) / 1e9)} records/second. Loss is ${
             lossSum.value / finishedModelNum
           }. ")
-        logger.debug("\n" + metrics.summary())
+        logger.info(s"task1 driver: ${task1Driver / 1e9}")
+        logger.info(s"task2 driver: ${task2Driver / 1e9}")
+        logger.info("\n" + metrics.summary())
         logger.debug("Dropped modules: " + (driverSubModelNum - finishedModelNum))
         lossArray = new Array[Double](_subModelNumber)
 
