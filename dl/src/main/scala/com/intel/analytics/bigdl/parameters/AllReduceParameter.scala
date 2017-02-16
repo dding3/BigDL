@@ -112,44 +112,42 @@ class AllReduceParameter[T: ClassTag](id: Long, partitionNum: Int,
 //  def getWeightBlockId(pid : Int): BlockId = {
 //    SparkExtension.getLocalBlockId(id + "weightBytes" + pid)
 //  }
-
-  def getWeightPartitionId(): BlockId = {
-    SparkExtension.getLocalBlockId(id + "weights" + partitionId)
-  }
-
-  def getGradientPartitionId(): BlockId = {
-    SparkExtension.getLocalBlockId(id + "gradients" + partitionId)
-  }
-
-//  def getGradientBlockId(pidFrom : Int, pidTo : Int): BlockId = {
-//    SparkExtension.getLocalBlockId(id.toString + pidTo + "gradientBytes" + pidFrom)
+//}
+//
+//class AllReduceParameter[T: ClassTag](val id: Long, partitionNum: Int,
+//  size: Int) extends Serializable {
+//  
+//  @transient private var taskSize = 0
+//  @transient private var extraSize = 0
+//  @transient private var partitionId: Int = 0
+//
+////  @transient lazy val parameterBuffer: CompressedTensor[T] = readParameterBuffer()
+//  @transient lazy val weightPartition: Tensor[T] = readWeightParititon()
+//  @transient lazy val gradientPartition: Tensor[T] = readGradientPartition()
+//
+//  @transient lazy val pm = ParameterManager.get
+//  
+//  private def readObject(in: java.io.ObjectInputStream) = {
+//    in.defaultReadObject()
+//    taskSize = size / partitionNum
+//    extraSize = size % partitionNum
+//    partitionId = TaskContext.getPartitionId()
 //  }
-
-//  def getWeights(localParameter: Tensor[T]): FutureResult[Int] = {
-//  val bm = SparkEnv.get.blockManager
-//    val tasks = (0 until partitionNum).map(pid => {
-//      syncPool.submit(new Callable[Int] {
-//        override def call(): Int = {
-//          try {
-//            val blockId = getWeightBlockId(pid)
-//            val localBuffer = BlockManagerWrapper.byteBufferConvert(
-//              bm.getLocalBytes(blockId).getOrElse(bm.getRemoteBytes(blockId)
-//                .get))
-//            val start = pid * taskSize + math.min(pid, extraSize)
-//            val length = taskSize + (if (pid < extraSize) 1 else 0)
-//            require(localBuffer.array().length == length * 2)
-//            SerializerInstance.serialize(localBuffer).deCompress(0, localParameter, start, length)
-//            BlockManagerWrapper.unlock(blockId)
-//            pid
-//          } catch {
-//            case t : Throwable =>
-//              logger.error("Error: " + ExceptionUtils.getStackTrace(t))
-//              throw t
-//          }
-//        }
-//      })
-//    })
-//    new FutureResult(tasks)
+//
+////  def readParameterBuffer(): CompressedTensor[T] = {
+////    new FP16SplitsCompressedTensor[T](size,
+////      partitionNum).asInstanceOf[CompressedTensor[T]]
+////  }
+//
+//  def readWeightParititon(): Tensor[T] = {
+//    val blockId = getWeightPartitionId()
+//    BlockManagerWrapper.getLocal(blockId).map(_.data.next()) match {
+//      case Some(x) =>
+//        x.asInstanceOf[Tensor[T]]
+//
+//      case None =>
+//        throw new Exception("Please initialize AllReduceParameter first!!")
+//    }
 //  }
 
     def getWeights(localParameter: Tensor[T]): Unit = {
