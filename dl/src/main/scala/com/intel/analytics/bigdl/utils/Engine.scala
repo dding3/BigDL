@@ -339,6 +339,7 @@ object Engine {
         throw new IllegalArgumentException(engineType.toString)
       }
       setCoreNumber(sc.getInt("spark.task.cpus", 1))
+//      setCoreNumber(4)
       setPartitionNumber(Some(partitionNum))
       Some(sc)
     } else {
