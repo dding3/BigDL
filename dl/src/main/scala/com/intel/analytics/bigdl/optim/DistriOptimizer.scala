@@ -117,10 +117,12 @@ object DistriOptimizer {
       metrics.set("computing time average", 0.0, sc, partitionNum)
       metrics.set("aggregate gradient time", 0.0, sc, partitionNum)
       metrics.set("get weights average", 0.0, sc, partitionNum)
+      metrics.set("get weights executor average", 0.0, sc, Engine.nodeNumber().get)
 //      metrics.set("get weights for each node", mutable.ArrayBuffer[Double](), sc)
-      metrics.set("put gradients", 0.0, sc, partitionNum)
+      metrics.set("send gradient partition", 0.0, sc, partitionNum)
+      metrics.set("aggregate local gradient executor", 0.0, sc, Engine.nodeNumber().get)
+      metrics.set("aggregate local gradient", 0.0, sc, partitionNum)
 //      metrics.set("put gradients for each node", mutable.ArrayBuffer[Double](), sc)
-      metrics.set("put weights average", 0.0, sc, partitionNum)
 //      metrics.set("put weights for each node", mutable.ArrayBuffer[Double](), sc)
       metrics.set("get gradients1 average", 0.0, sc, partitionNum)
       metrics.set("get gradients2 average", 0.0, sc, partitionNum)
@@ -148,12 +150,15 @@ object DistriOptimizer {
           val syWStart = System.nanoTime()
           ParameterManager.synchronized {
             if (!parameters.done) {
+              val t = System.nanoTime()
               parameters.syncWeights(cached.modelWeights.head)
 //              println("sync weight: " + cached.modelWeights.head)
               parameters.done = true
+              driverMetrics.add("get weights executor average", System.nanoTime()-t)
             }
           }
           val weightSyncTime = System.nanoTime() - syWStart
+          driverMetrics.add("get weights average", weightSyncTime)
 //          parameters.getWeights(cached.modelWeights.head)
           val tensorConstruct = System.nanoTime()
           val tensorBuffer = new Array[(Tensor[T], Tensor[T])](_subModelNumber)
@@ -205,6 +210,7 @@ object DistriOptimizer {
           driverMetrics.add("computing time average", computingTime)
 //          driverMetrics.add("computing time for each node", computingTime)
 
+          time = System.nanoTime()
           val finishedThreads = trainingThreads.filter(!_.isCancelled).map(_.get())
           recordsNum += finishedThreads.size * tensorBuffer.head._2.size(1)
           var i = 0
@@ -214,7 +220,7 @@ object DistriOptimizer {
           }
 
           if (finishedThreads.size > 0) {
-            time = System.nanoTime()
+//            time = System.nanoTime()
             val gradLength = cached.modelGradients(0).nElement()
             val taskSize = gradLength / _subModelNumber
             val extraTask = gradLength % _subModelNumber
@@ -240,8 +246,8 @@ object DistriOptimizer {
                 i += 1
               }
             }))
-            driverMetrics.add("aggregate gradient time", System.nanoTime() - time)
           }
+          driverMetrics.add("aggregate gradient time", System.nanoTime() - time)
           
           time = System.nanoTime()
 //          parameters.putGradients(cached.gradient)
@@ -292,19 +298,19 @@ object DistriOptimizer {
           ParameterManager.synchronized {
             if (!parameters.done) {
 //              val gradients = parameters.aggregateLocalGradient()
-
               val params = new Array[CompressedTensor[T]](Engine.nodeNumber().get)
               val getG1 = System.nanoTime()
               parameters.aggregrateGradientParition1(params)
-              driverMetrics.add("get gradients1 average", System.nanoTime() - getG1)
+              driverMetrics.add("aggregrateGradientParition1 average executor", System.nanoTime() - getG1)
 
               val getG2 = System.nanoTime()
               parameters.aggregrateGradientParition2(params)
-              driverMetrics.add("get gradients2 average", System.nanoTime() - getG2)
+              driverMetrics.add("aggregrateGradientParition2 average executor", System.nanoTime() - getG2)
               parameters.done = true
             }
           }
           
+          val t = System.nanoTime()
           val taskId = TaskContext.getPartitionId
           val gradients = parameters.readGradientPartition[T](taskId)
             .div(ev.fromType(finishedModelNum))
@@ -317,7 +323,8 @@ object DistriOptimizer {
 //            parameters.weightPartition, modelCache.localStates.head, modelCache.localStates.head)
           optimMethod.optimize(_ => (ev.fromType(value), gradients),
             weights, modelCache.localStates.head, modelCache.localStates.head)
-
+          driverMetrics.add("compute weight average", System.nanoTime() - t)
+          
           val time = System.nanoTime()
 //          println(s"weights${taskId}: " + weights)
           parameters.sendWeightPartition(weights, taskId)
@@ -331,7 +338,7 @@ object DistriOptimizer {
             }
           }
           
-          driverMetrics.add("put weights average", System.nanoTime() - time)
+          driverMetrics.add("send weights average", System.nanoTime() - time)
 //          driverMetrics.add("put weights for each node", System.nanoTime() - time)
           Iterator.empty
         }).count()
