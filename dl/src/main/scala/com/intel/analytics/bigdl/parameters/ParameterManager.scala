@@ -66,8 +66,19 @@ class ParameterManager(val id: Int, val executorId: Int,
 
   private val syncPoolSize: Int = System.getProperty(
     "bigdl.Parameter.syncPoolSize", "4").toInt
+
+  private val computePoolSize: Int = System.getProperty(
+    "bigdl.Parameter.computePoolSize", "28").toInt
   
   val syncPool = Executors.newFixedThreadPool(syncPoolSize, new ThreadFactory {
+    override def newThread(r: Runnable): Thread = {
+      val t = Executors.defaultThreadFactory().newThread(r)
+      t.setDaemon(true)
+      t
+    }
+  })
+
+  val computePool = Executors.newFixedThreadPool(computePoolSize, new ThreadFactory {
     override def newThread(r: Runnable): Thread = {
       val t = Executors.defaultThreadFactory().newThread(r)
       t.setDaemon(true)
@@ -123,17 +134,23 @@ class ParameterManager(val id: Int, val executorId: Int,
 //    val gradientBuffer = new Array[Tensor[T]](blockIds.length)
 //    Engine.default.invokeAndWait2((0 until blockIds.length).map(pid => () => {
     val gradientBuffer = new Array[Tensor[T]](finishedTaskNumber)
-    Engine.default.invokeAndWait2((0 until finishedTaskNumber).map(pid => () => {
-        val blockId = getGradientPartitionId(taskIds(pid))
-        gradientBuffer(pid) =
-          BlockManagerWrapper.getLocal(blockId).map(_.data.next()) match {
-            case Some(x) =>
-              x.asInstanceOf[Tensor[T]]
-    
-            case None =>
-              throw new Exception("Please initialize AllReduceParameter first!!")
-          }
-      }))
+    val threads2 = (0 until finishedTaskNumber).map(pid => {
+      new Callable[Int] {
+        override def call(): Int = {
+          val blockId = getGradientPartitionId(taskIds(pid))
+          gradientBuffer(pid) =
+            BlockManagerWrapper.getLocal(blockId).map(_.data.next()) match {
+              case Some(x) =>
+                x.asInstanceOf[Tensor[T]]
+
+              case None =>
+                throw new Exception("Please initialize AllReduceParameter first!!")
+            }
+          pid
+        }
+      }
+    }).asJava
+    computePool.invokeAll(threads2)
 
 //    blockIds.clear()
 //    val poolSize = Engine.default.getPoolSize
@@ -141,17 +158,23 @@ class ParameterManager(val id: Int, val executorId: Int,
     val innerTaskSize = size / poolSize
     val innerExtraSize = size % poolSize
     val availableTask = if (innerTaskSize == 0) innerExtraSize else poolSize
-      Engine.default.invokeAndWait2((0 until availableTask).map(tid => () => {
-      val innerStart = tid * innerTaskSize + math.min(innerExtraSize, tid)
-      val innerLength = innerTaskSize + (if (tid < innerExtraSize) 1 else 0)
-      var i = 1
-      while (i < gradientBuffer.length) {
-        gradientBuffer(0).narrow(1, innerStart + 1, innerLength)
-            .add(gradientBuffer(i).narrow(1, innerStart + 1, innerLength))
-        i += 1
+    
+    val threads = (0 until availableTask).map(tid => {
+      new Callable[Int] {
+        override def call(): Int = {
+          val innerStart = tid * innerTaskSize + math.min(innerExtraSize, tid)
+          val innerLength = innerTaskSize + (if (tid < innerExtraSize) 1 else 0)
+          var i = 1
+          while (i < gradientBuffer.length) {
+            gradientBuffer(0).narrow(1, innerStart + 1, innerLength)
+              .add(gradientBuffer(i).narrow(1, innerStart + 1, innerLength))
+            i += 1
+          }
+          tid
+        }
       }
-      tid
-    }))
+    }).asJava
+    computePool.invokeAll(threads)
     
     gradientBuffer(0)
   }
@@ -210,13 +233,19 @@ val poolSize = 28
     val innerTaskSize = length / poolSize
     val innerExtraSize = length % poolSize
     val availableTask = if (innerTaskSize == 0) innerExtraSize else poolSize
-    Engine.default.invokeAndWait2((0 until availableTask).map(tid => () => {
-      val innerStart = tid * innerTaskSize + math.min(innerExtraSize, tid)
-      val innerLength = innerTaskSize + (if (tid < innerExtraSize) 1 else 0)
-      params.reduce((l, r) => l.add(r.bytes(innerStart, innerLength), innerStart,
-        innerLength))
-      tid
-    }))
+
+    val threads = (0 until availableTask).map(tid => {
+      new Callable[Int] {
+        override def call(): Int = {
+          val innerStart = tid * innerTaskSize + math.min(innerExtraSize, tid)
+          val innerLength = innerTaskSize + (if (tid < innerExtraSize) 1 else 0)
+          params.reduce((l, r) => l.add(r.bytes(innerStart, innerLength), innerStart,
+            innerLength))
+          tid
+        }
+      }
+    }).asJava
+    computePool.invokeAll(threads)
 
     val gradientId = getGradientExecutorId()
     val gradientExecutor = BlockManagerWrapper.getLocal(gradientId).map(_.data.next()) match {
@@ -281,21 +310,29 @@ val poolSize = 28
     val size = weightExecutor.nElement()
     val taskSize = size / taskIds.size
     val extraSize = size % taskIds.size
-    Engine.default.invokeAndWait2((0 until finishedTaskNumber).map(pid => () => {
-      val blockId = getWeightPartitionId(taskIds(pid))
-      val weightPartition =
-        BlockManagerWrapper.getLocal(blockId).map(_.data.next()) match {
-          case Some(x) =>
-            x.asInstanceOf[Tensor[T]]
 
-          case None =>
-            throw new Exception("Please initialize AllReduceParameter first!!")
+    val threads = (0 until finishedTaskNumber).map(pid => {
+      new Callable[Int] {
+        override def call(): Int = {
+          val blockId = getWeightPartitionId(taskIds(pid))
+          val weightPartition =
+            BlockManagerWrapper.getLocal(blockId).map(_.data.next()) match {
+              case Some(x) =>
+                x.asInstanceOf[Tensor[T]]
+
+              case None =>
+                throw new Exception("Please initialize AllReduceParameter first!!")
+            }
+          val offset = pid * taskSize + math.min(pid, extraSize)
+          val length = taskSize + (if (pid < extraSize) 1 else 0)
+          //      println("weightpartition:" + weightPartition)
+          weightExecutor.narrow(1, offset + 1, length).set(weightPartition)
+          pid
         }
-      val offset = pid * taskSize + math.min(pid, extraSize)
-      val length = taskSize + (if (pid < extraSize) 1 else 0)
-//      println("weightpartition:" + weightPartition)
-      weightExecutor.narrow(1, offset + 1, length).set(weightPartition)
-    }))
+      }
+    }).asJava
+    computePool.invokeAll(threads)
+    
 //    blockIds.clear()
 //    println("weightExecutor:" + weightExecutor)
 //    println("executorid: " + executorId)
