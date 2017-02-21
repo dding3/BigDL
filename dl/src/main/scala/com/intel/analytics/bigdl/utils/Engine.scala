@@ -316,13 +316,13 @@ object Engine {
   }
   
   def init(
-    node: Int,
+    node: Int, // need remove it
     partitionNum: Int = -1,
     onSpark: Boolean = false
   ): Option[SparkConf] = {
     val ret = if (onSpark) {
       require(partitionNum > 0)
-      nodeNum = Some(node)
+//      nodeNum = Some(node)
       val sc = if (engineType == MklBlas) {
         new SparkConf()
           .setExecutorEnv("DL_ENGINE_TYPE", "mklblas")
@@ -330,7 +330,7 @@ object Engine {
           .setExecutorEnv("KMP_BLOCKTIME", "0")
           .setExecutorEnv("OMP_WAIT_POLICY", "passive")
           .setExecutorEnv("OMP_NUM_THREADS", "1")
-          .setExecutorEnv("DL_NODE_NUMBER", nodeNum.get.toString)
+//          .setExecutorEnv("DL_NODE_NUMBER", nodeNum.get.toString)
           .setExecutorEnv("DL_PARTITION_NUMBER", partitionNum.toString)
           .set("spark.shuffle.blockTransferService", "nio")
           .set("spark.akka.frameSize", "10")

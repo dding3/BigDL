@@ -29,6 +29,7 @@ import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.storage.{BlockId, BlockManagerWrapper, StorageLevel}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
 import scala.reflect._
@@ -99,14 +100,20 @@ class ParameterManager(val id: Int, val executorId: Int,
 //    done = false
 //  }
 
-  def init[T: ClassTag](parameter: Tensor[T])(implicit ev: TensorNumeric[T]): Unit = {
+  def init[T: ClassTag](parameter: Tensor[T], sizeMap: HashMap[Int, (Int, Int)])
+    (implicit ev: TensorNumeric[T]): Unit = {
     val _classTag = classTag[T]
 
-//    println("executorid: " + executorId)
-    val taskSize = size / executorNum
-    val extraSize = size % executorNum
-    val start = executorId * taskSize + math.min(executorId, extraSize)
-    val length = taskSize + (if (executorId < extraSize) 1 else 0)
+//    val taskSize = size / executorNum
+//    val extraSize = size % executorNum
+//    val start = executorId * taskSize + math.min(executorId, extraSize)
+//    val length = taskSize + (if (executorId < extraSize) 1 else 0)
+    
+    this.sizeMap = sizeMap
+    sizeMap.foreach(x => println(s"key: ${x._1} value: ${x._2}"))
+    val start = sizeMap(executorId)._1
+    val length = sizeMap(executorId)._2
+    
 //    println("size: " + size)
 //    println("executorNum: " + executorNum)
     val _weightsExecutor = Tensor[T](length)(_classTag, ev).copy(parameter.narrow(1,
@@ -181,19 +188,29 @@ class ParameterManager(val id: Int, val executorId: Int,
 
   def putGradients[T: ClassTag](parameter: Tensor[T]): Unit = {
 //    println("executorid: " + executorId)
+    val _classTag = classTag[T]
     var pid = 0
-    val parameterBuffer = new FP16SplitsCompressedTensor[T](size,
-      executorNum).asInstanceOf[CompressedTensor[T]]
-    parameterBuffer.compress(parameter)
-    val taskSize = size / executorNum
-    val extraSize = size % executorNum
+//    val parameterBuffer = new FP16SplitsCompressedTensor[T](size,
+//      executorNum).asInstanceOf[CompressedTensor[T]]
+//    parameterBuffer.compress(parameter)
+
+//    val taskSize = size / executorNum
+//    val extraSize = size % executorNum
+    require(sizeMap != null)
     while (pid < executorNum) {
-      val start = pid * taskSize + math.min(pid, extraSize)
-      val length = taskSize + (if (pid < extraSize) 1 else 0)
+//      val start = pid * taskSize + math.min(pid, extraSize)
+//      val length = taskSize + (if (pid < extraSize) 1 else 0)
+      sizeMap.foreach(x => println(x._1 + " " + x._2))
+      val start = sizeMap(pid)._1
+      val length = sizeMap(pid)._2
       val blockId = getGradientBlockId(executorId, pid)
-      BlockManagerWrapper.putBytes(
-        blockId, parameterBuffer.bytes(start, length),
-        StorageLevel.MEMORY_ONLY_SER)
+      println("blockId: " + blockId)
+      val fp16param = new FP16CompressedTensor[T](length)(_classTag)
+      fp16param.compress(0, parameter, start, length)
+      BlockManagerWrapper.putBytes(blockId, fp16param.bytes(), StorageLevel.MEMORY_ONLY_SER)
+//      BlockManagerWrapper.putBytes(
+//        blockId, parameterBuffer.bytes(start, length),
+//        StorageLevel.MEMORY_ONLY_SER)
       pid += 1
     }
   }
@@ -224,10 +241,11 @@ class ParameterManager(val id: Int, val executorId: Int,
 
 //  def aggregrateGradientParition2[T: ClassTag](params: Array[CompressedTensor[T]]): Unit = {
   def aggregrateGradientParition2[T: ClassTag](params: Array[CompressedTensor[T]]): Unit = {
-    val taskSize = size / executorNum
-    val extraSize = size % executorNum
+//    val taskSize = size / executorNum
+//    val extraSize = size % executorNum
 //    println("executorid: " + executorId)
-    val length = taskSize + (if (executorId < extraSize) 1 else 0)
+//    val length = taskSize + (if (executorId < extraSize) 1 else 0)
+    val length = sizeMap(executorId)._2
 //    val poolSize = Engine.default.getPoolSize
 val poolSize = 28
     val innerTaskSize = length / poolSize
@@ -255,6 +273,9 @@ val poolSize = 28
       case None =>
         throw new Exception("Please initialize AllReduceParameter first!!")
     }
+    println("length: " + length)
+    println("gradientExecutor: " + gradientExecutor.nElement())
+    println("params length: " + params.head.bytes().array().length)
     params.head.deCompress(gradientExecutor)
 //    println("gradientExecutor: " + gradientExecutor)
 //    BlockManagerWrapper.removeBlock(gradientId)
@@ -264,8 +285,8 @@ val poolSize = 28
   }
 
   def syncWeights[T: ClassTag](localParameter: Tensor[T]): Unit = {
-    val taskSize = size / executorNum
-    val extraSize = size % executorNum
+//    val taskSize = size / executorNum
+//    val extraSize = size % executorNum
     val bm = SparkEnv.get.blockManager
     val tasks = (0 until executorNum).map(pid => {
       new Callable[Int] {
@@ -275,8 +296,10 @@ val poolSize = 28
             val localBuffer = BlockManagerWrapper.byteBufferConvert(
               bm.getLocalBytes(blockId).getOrElse(bm.getRemoteBytes(blockId)
                 .get))
-            val start = pid * taskSize + math.min(pid, extraSize)
-            val length = taskSize + (if (pid < extraSize) 1 else 0)
+//            val start = pid * taskSize + math.min(pid, extraSize)
+//            val length = taskSize + (if (pid < extraSize) 1 else 0)
+            val start = sizeMap(executorId)._1
+            val length = sizeMap(executorId)._2
             require(localBuffer.array().length == length * 2)
             SerializerInstance.serialize[T](localBuffer)
               .deCompress(0, localParameter, start, length)
@@ -470,7 +493,8 @@ val poolSize = 28
       gradient, StorageLevel.MEMORY_AND_DISK, tellMaster = false)
   }
   
-  private val taskIdsMap = new HashMap[Int, Int]()
+  val taskIdsMap = new HashMap[Int, Int]()
+  var sizeMap : HashMap[Int, (Int, Int)] = null
   val taskIds = new ArrayBuffer[Int]()
   var finishedTaskNumber = 0
   var tmp = 0
