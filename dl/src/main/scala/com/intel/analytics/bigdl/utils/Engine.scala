@@ -339,7 +339,7 @@ object Engine {
   }
 
   def init(
-    node: Int,
+    node: Int, // need remove it
     partitionNum: Int = -1,
     onSpark: Boolean = false
   ): Option[SparkConf] = {

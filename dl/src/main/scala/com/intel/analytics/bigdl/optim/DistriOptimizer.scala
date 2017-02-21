@@ -26,8 +26,7 @@ import org.apache.log4j.Logger
 import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.rdd.{RDD, ZippedPartitionsWithLocalityRDD}
 
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, HashMap}
 import scala.concurrent.Future
 import scala.reflect.ClassTag
 
@@ -104,7 +103,7 @@ object DistriOptimizer {
     val driverSubModelNum = partitionNum * _subModelNumber
     var dropModelNumBatch = 0
     var lossArray = new Array[Double](_subModelNumber)
-
+        
     var epochStart = System.nanoTime()
     var dataRDD = dataset.data(train = true)
     while (!endWhen(driverState)) {
@@ -290,6 +289,7 @@ object DistriOptimizer {
 //          Iterator.empty
 //        }).count()
         
+        val nodeNumber = Engine.nodeNumber().get
         models.mapPartitions(modelIter => {
           val modelCache = modelIter.next()
           val parameters = ParameterManager.get()
@@ -298,7 +298,7 @@ object DistriOptimizer {
           ParameterManager.synchronized {
             if (!parameters.done) {
 //              val gradients = parameters.aggregateLocalGradient()
-              val params = new Array[CompressedTensor[T]](Engine.nodeNumber().get)
+              val params = new Array[CompressedTensor[T]](nodeNumber)
               val getG1 = System.nanoTime()
               parameters.aggregrateGradientParition1(params)
               driverMetrics.add("aggregrateGradientParition1 average executor", System.nanoTime() - getG1)
@@ -475,7 +475,6 @@ object DistriOptimizer {
 //    dummyData: RDD[Array[Int]]
     )(implicit ev: TensorNumeric[T]) = {
     val sc = dataset.originRDD().sparkContext
-    val broadcast = sc.broadcast((model, criterion, state))
     val _subModelNumber = Engine.getEngineType match {
 //      case MklBlas => coresPerNode
       case MklBlas => 1 // coresPerTask
@@ -489,7 +488,8 @@ object DistriOptimizer {
     val partitionNum = dataset.originRDD().partitions.length
     val computeThresholdbatchSize = state.get[Int]("computeThresholdbatchSize").get
     val models = dataset.originRDD().mapPartitions(_ => {
-      val (broadcastModel, broadcastCriterion, broadcastState) = broadcast.value
+      val (broadcastModel, broadcastCriterion, broadcastState)
+         = broadcast.value
       if (!Engine.checkSingleton()) {
         if (checkSingleton) {
           require(Engine.checkSingleton(), "Detect multi-task run on one Executor/Container. " +
@@ -518,21 +518,30 @@ object DistriOptimizer {
 
       // init parameter manager
       val weights = cached.head._2
+      val parameter = ParameterManager.get()
       ParameterManager.synchronized {
-        if (ParameterManager.get() == null) {
-          val executorId = SparkEnv.get.executorId          
-          val id = if (!executorId.equals("driver")) executorId.toInt else 0
-          val pm2 = ParameterManager.createParameterManager(id, nodeNumber,
-            partitionNum, weights.nElement)
-          pm2.init(weights)
+        if (!parameter.done) {
+//          val executorId = SparkEnv.get.executorId
+//          val id = if (!executorId.equals("driver")) executorId.toInt else 0
+//          val pm2 = ParameterManager.createParameterManager(id, nodeNumber,
+//            partitionNum, weights.nElement)
+          parameter.init(weights, sizeMap)
+          parameter.done = true
         }
       }
       
-      
       cached.map(c =>
-        c._2.storage().set(ParameterManager.get().getWeight[T]().storage())
+        c._2.storage().set(parameter.getWeight[T]().storage())
       )
-      ParameterManager.get().registerPartition(TaskContext.getPartitionId())
+      
+      ParameterManager.synchronized {
+        parameter.finishedTaskNumber += 1
+        if (parameter.finishedTaskNumber == parameter.taskIds.size) {
+          parameter.finishedTaskNumber = 0
+          parameter.done = false
+        }
+      }
+      
       Iterator(Cache(
         cached.map(_._1), // models
         cached.map(_._2), // weights
@@ -547,7 +556,6 @@ object DistriOptimizer {
     logger.info("Cache thread models...")
     models.count()
     logger.info("Cache thread models... done")
-    
     models
   }
 
@@ -628,6 +636,10 @@ object DistriOptimizer {
       Iterator.single(Map(parameter.executorId ->
         parameter.readWeightExecutor[T]()))
     }).reduce(_ ++ _)
+    
+    val sizeMap = models.mapPartitions(iter => {
+      Iterator.single(ParameterManager.get().sizeMap)
+    }).first()
 
     val parameter = trainedModel.getParameters()._1
     val parameterLength = parameter.nElement()
@@ -643,12 +655,14 @@ object DistriOptimizer {
 
 //    println("weightsize: " + weights.size)
 //    println("parameterlen: " + parameterLength)
-    val taskSize = parameterLength / weights.size
-    val extraSize = parameterLength % weights.size
+//    val taskSize = parameterLength / weights.size
+//    val extraSize = parameterLength % weights.size
 
     (0 until weights.size).map(pid => {
-      val start = pid * taskSize + math.min(pid, extraSize)
-      val length = taskSize + (if (pid < extraSize) 1 else 0)
+//      val start = pid * taskSize + math.min(pid, extraSize)
+//      val length = taskSize + (if (pid < extraSize) 1 else 0)
+      val start = sizeMap(pid)._1
+      val length = sizeMap(pid)._2
       parameter.narrow(1, start + 1, length).copy(weights(pid))
     })
 
@@ -689,8 +703,8 @@ class DistriOptimizer[T: ClassTag] (
     state("computeThresholdbatchSize") = computeThresholdbatchSize
     state("maxDropPercentage") = maxDropPercentage
 
-    require(Engine.nodeNumber().isDefined, "Node number is not set")
-    val nodeNumber = Engine.nodeNumber().get
+//    require(Engine.nodeNumber().isDefined, "Node number is not set")
+//    val nodeNumber = Engine.nodeNumber().get
 
     val partitionNum = dataset.originRDD().partitions.length
     val size = model.getParameters()._1.nElement()
