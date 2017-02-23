@@ -110,14 +110,17 @@ class ParameterManager(val id: Int, val executorId: Int,
 //    val length = taskSize + (if (executorId < extraSize) 1 else 0)
     
     this.sizeMap = sizeMap
-    sizeMap.foreach(x => println(s"key: ${x._1} value: ${x._2}"))
+//    sizeMap.foreach(x => println(s"key: ${x._1} value: ${x._2}"))
     val start = sizeMap(executorId)._1
     val length = sizeMap(executorId)._2
     
 //    println("size: " + size)
-//    println("executorNum: " + executorNum)
+    println("executorNum: " + executorNum)
+    println("ori weight: " + parameter)
     val _weightsExecutor = Tensor[T](length)(_classTag, ev).copy(parameter.narrow(1,
       start + 1, length))
+//    println("weight part: " + _weightsExecutor)
+//    println("start: " + start + "length: " + length)
 //    val _weights = Tensor[T](parameter.nElement())(_classTag, ev).copy(parameter)
     BlockManagerWrapper.putSingle(getWeightExecutorId(),
       _weightsExecutor, StorageLevel.MEMORY_AND_DISK, tellMaster = false)
@@ -134,6 +137,7 @@ class ParameterManager(val id: Int, val executorId: Int,
     val blockId = getWeightBlockId(executorId)
     val fp16param = new FP16CompressedTensor[T](length)(_classTag)
     fp16param.compress(0, parameter, start, length)
+//    println("bytes: " + fp16param.bytes())
     BlockManagerWrapper.putBytes(blockId, fp16param.bytes(), StorageLevel.MEMORY_ONLY_SER)
   }
   
@@ -200,11 +204,11 @@ class ParameterManager(val id: Int, val executorId: Int,
     while (pid < executorNum) {
 //      val start = pid * taskSize + math.min(pid, extraSize)
 //      val length = taskSize + (if (pid < extraSize) 1 else 0)
-      sizeMap.foreach(x => println(x._1 + " " + x._2))
+//      sizeMap.foreach(x => println(x._1 + " " + x._2))
       val start = sizeMap(pid)._1
       val length = sizeMap(pid)._2
       val blockId = getGradientBlockId(executorId, pid)
-      println("blockId: " + blockId)
+//      println("blockId: " + blockId)
       val fp16param = new FP16CompressedTensor[T](length)(_classTag)
       fp16param.compress(0, parameter, start, length)
       BlockManagerWrapper.putBytes(blockId, fp16param.bytes(), StorageLevel.MEMORY_ONLY_SER)
@@ -273,9 +277,9 @@ val poolSize = 28
       case None =>
         throw new Exception("Please initialize AllReduceParameter first!!")
     }
-    println("length: " + length)
-    println("gradientExecutor: " + gradientExecutor.nElement())
-    println("params length: " + params.head.bytes().array().length)
+//    println("length: " + length)
+//    println("gradientExecutor: " + gradientExecutor.nElement())
+//    println("params length: " + params.head.bytes().array().length)
     params.head.deCompress(gradientExecutor)
 //    println("gradientExecutor: " + gradientExecutor)
 //    BlockManagerWrapper.removeBlock(gradientId)
@@ -298,8 +302,8 @@ val poolSize = 28
                 .get))
 //            val start = pid * taskSize + math.min(pid, extraSize)
 //            val length = taskSize + (if (pid < extraSize) 1 else 0)
-            val start = sizeMap(executorId)._1
-            val length = sizeMap(executorId)._2
+            val start = sizeMap(pid)._1
+            val length = sizeMap(pid)._2
             require(localBuffer.array().length == length * 2)
             SerializerInstance.serialize[T](localBuffer)
               .deCompress(0, localParameter, start, length)
@@ -400,6 +404,10 @@ val poolSize = 28
     SparkExtension.getLocalBlockId("parameterManager gradient partition" + pid)
   }
 
+  def getTablePartitionId(pid: Int): BlockId = {
+    SparkExtension.getLocalBlockId("parameterManager table partition" + pid)
+  }
+  
   def getGradientExecutorId(): BlockId = {
     SparkExtension.getLocalBlockId("parameterManager gradients" + executorId)
   }
@@ -491,6 +499,10 @@ val poolSize = 28
     BlockManagerWrapper.removeBlock(gradientsId)
     BlockManagerWrapper.putSingle((gradientsId),
       gradient, StorageLevel.MEMORY_AND_DISK, tellMaster = false)
+//    val tableId = getTablePartitionId(pid)
+//    BlockManagerWrapper.removeBlock(tableId)
+//    BlockManagerWrapper.putSingle((tableId),
+//      gradient, StorageLevel.MEMORY_AND_DISK, tellMaster = false)
   }
   
   val taskIdsMap = new HashMap[Int, Int]()
