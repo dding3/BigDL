@@ -26,6 +26,7 @@ import org.apache.log4j.Logger
 import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.rdd.{RDD, ZippedPartitionsWithLocalityRDD}
 
+import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, HashMap}
 import scala.concurrent.Future
 import scala.reflect.ClassTag
@@ -72,7 +73,7 @@ object DistriOptimizer {
     cachePath: Option[String],
     isOverWrite: Boolean
     //    dummyData: RDD[Array[Int]]
-  )(implicit ev: TensorNumeric[T]) = {
+  )(implicit ev: TensorNumeric[T]): Unit = {
     val sc = dataset.originRDD().sparkContext
     val partitionNum = dataset.originRDD().partitions.length
     var wallClockTime = 0L
@@ -151,9 +152,9 @@ object DistriOptimizer {
             if (!parameters.done) {
               val t = System.nanoTime()
               parameters.syncWeights(cached.modelWeights.head)
-//              println("sync weight: " + cached.modelWeights.head)
               parameters.done = true
               driverMetrics.add("get weights executor average", System.nanoTime()-t)
+              println("weight after sync: " + cached.modelWeights.head)
             }
           }
           val weightSyncTime = System.nanoTime() - syWStart
@@ -180,7 +181,7 @@ object DistriOptimizer {
           driverMetrics.add("data prepare average", System.nanoTime() - tensorConstruct)
           
           tasks.clear()
-
+          
           // ======================Start train models===================================
           var time = System.nanoTime()
 
@@ -251,10 +252,13 @@ object DistriOptimizer {
           time = System.nanoTime()
 //          parameters.putGradients(cached.gradient)
           parameters.sendGradientPartition(cached.gradient, TaskContext.getPartitionId())
+//          println("taskid: " + TaskContext.getPartitionId()+" table:" + cached.localStates.head)
+          
           tasks ++= Engine.default.invoke((0 until _subModelNumber).map(i => () => {
             cached.localModels(i).training()
             cached.localModels(i).zeroGradParameters()
           }))
+
           driverMetrics.add("put gradients", System.nanoTime() - time)
           driverMetrics.add("task1 time for each node", System.nanoTime() - syWStart)
           Iterator(finishedThreads.size)
@@ -307,16 +311,20 @@ object DistriOptimizer {
               parameters.aggregrateGradientParition2(params)
               driverMetrics.add("aggregrateGradientParition2 average executor", System.nanoTime() - getG2)
               parameters.done = true
+              println("gradientExecutor: " + parameters.readGradientExecutor())
+              println("finishedModelNum: " + finishedModelNum + "value: " + value)
             }
           }
           
           val t = System.nanoTime()
           val taskId = TaskContext.getPartitionId
+//          println("taskId: " + taskId + " modelCache.localStates: " + modelCache.localStates.head)
           val gradients = parameters.readGradientPartition[T](taskId)
-            .div(ev.fromType(finishedModelNum))
+          println("taskId: " + taskId + " gradientPartition: " + gradients)
+          gradients.div(ev.fromType(finishedModelNum))
+          println("taskId: " + taskId + " gradientPartition after: " + gradients)
+          
           val weights = parameters.readWeightPartition[T](taskId)
-//          println("gradients" + taskId + " :" + gradients)
-
           modelCache.localStates.head("neval") = driverState[Int]("neval")
           modelCache.localStates.head("epoch") = driverState[Int]("epoch")
 //          optimMethod.optimize(_ => (ev.fromType(value), parameters.gradientPartition),
@@ -326,7 +334,6 @@ object DistriOptimizer {
           driverMetrics.add("compute weight average", System.nanoTime() - t)
           
           val time = System.nanoTime()
-//          println(s"weights${taskId}: " + weights)
           parameters.sendWeightPartition(weights, taskId)
           // aggreate local weights
           parameters.synchronized {
@@ -335,9 +342,10 @@ object DistriOptimizer {
               parameters.sendWeightExecutor()
               parameters.finishedTaskNumber = 0
               parameters.done = false
+              println("weightExecutor: " + parameters.readWeightExecutor())
             }
           }
-          
+          println("taskId: " + taskId + " weightPartition: " + parameters.readWeightPartition(taskId))
           driverMetrics.add("send weights average", System.nanoTime() - time)
 //          driverMetrics.add("put weights for each node", System.nanoTime() - time)
           Iterator.empty
@@ -480,7 +488,6 @@ object DistriOptimizer {
       case MklBlas => 1 // coresPerTask
       case _ => throw new IllegalArgumentException
     }
-
     require(dataset.originRDD().partitions.length == nodeNumber*coresPerNode,
       s"Passed in rdd partition number ${dataset.originRDD().partitions.length}" +
         s" is not equal to configured node number ${nodeNumber}")
@@ -669,6 +676,7 @@ object DistriOptimizer {
     trainedModel
   }
 }
+
 
 class DistriOptimizer[T: ClassTag] (
   model: Module[T],

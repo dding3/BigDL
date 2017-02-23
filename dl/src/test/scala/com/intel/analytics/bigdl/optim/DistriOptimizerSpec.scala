@@ -136,7 +136,7 @@ val rdd = sc.parallelize(1 to (256 * nodeNumber), nodeNumber*coreNumber).map(pre
       new MSECriterion[Double]())
       .setOptimMethod(new LBFGS)
     val model = optimizer.optimize()
-
+println("model: " + model.getParameters()._1)
     val result1 = model.forward(input1).asInstanceOf[Tensor[Double]]
     result1(Array(1)) should be(0.0 +- 1e-2)
 
