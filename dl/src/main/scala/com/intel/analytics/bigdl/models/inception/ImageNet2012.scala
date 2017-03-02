@@ -37,6 +37,7 @@ object ImageNet2012 {
     size: Int
   )
   : DataSet[MiniBatch[Float]] = {
+//    println("batchsize: " + batchSize)
     (if (sc.isDefined) {
       DataSet.SeqFileFolder.files(path, sc.get, classNumber).transform(
         MTLabeledBGRImgToBatch[ByteRecord](

@@ -78,7 +78,7 @@ object Options {
       .text("overwrite checkpoint files")
       .action( (_, c) => c.copy(overWriteCheckpoint = true) )
     opt[String]("env")
-      .text("execution environment")
+      .text("execution environment2")
       .validate(x => {
         if (Set("local", "spark").contains(x.toLowerCase)) {
           success

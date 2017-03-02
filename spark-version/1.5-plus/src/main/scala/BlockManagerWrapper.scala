@@ -19,7 +19,8 @@ package org.apache.spark.storage
 
 import java.nio.ByteBuffer
 
-import org.apache.spark.SparkEnv
+import org.apache.spark.{SparkConf, SparkEnv}
+import org.apache.spark.rpc.RpcEnv
 
 object BlockManagerWrapper {
 

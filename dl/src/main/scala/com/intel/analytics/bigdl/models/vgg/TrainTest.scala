@@ -55,7 +55,7 @@ object TrainTest {
 //val input2: Tensor[Double] = Tensor[Double](Storage[Double](Array(1.0, 1.0, 1.0, 1.0)))
       val output2 = 1.0
       var plusOne = 0.0
-      val batchsize = 2*sc.get.getConf.getInt("spark.task.cpus", 1)
+      val batchsize = param.batchSize / 4
       val prepareData: Int => (MiniBatch[Double]) = index => {
         val input = Tensor[Double]().resize(batchsize, 4)
         val target = Tensor[Double]().resize(batchsize)
@@ -97,12 +97,12 @@ object TrainTest {
 
       val mm = mse
       mm.getParameters()._1.fill(0.125)
-      val optimizer = new DistriOptimizer[Double](
+      val optimizer = new DistriOptimizer2[Double](
         mm,
         dataSet,
         new MSECriterion[Double]())
-        .setOptimMethod(new Adagrad)
-//        .setEndWhen(Trigger.maxIteration(10))
+        .setOptimMethod(new Adagrad())
+//        .setEndWhen(Trigger.maxIteration(2))
       val model = optimizer.optimize()
 
       println("model: " + model.getParameters()._1)
