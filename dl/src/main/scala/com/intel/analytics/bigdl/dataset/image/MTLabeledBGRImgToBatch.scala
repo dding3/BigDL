@@ -48,7 +48,7 @@ class MTLabeledBGRImgToBatch[A: ClassTag] private[bigdl](width: Int, height: Int
   extends Transformer[A, MiniBatch[Float]] {
 
   private val batchSize = Utils.getBatchSize(totalBatchSize)
-
+//println("batchsize2: " + batchSize)
   private def getPosition(count: AtomicInteger): Int = {
     val position = count.getAndIncrement()
     if (position < batchSize) position else -1
