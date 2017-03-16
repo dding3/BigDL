@@ -279,9 +279,6 @@ object DataSet {
    * @return
    */
   def array[T: ClassTag](localData: Array[T], sc: SparkContext): DistributedDataSet[T] = {
-//    val nodeNumber = Engine.nodeNumber()
-//      .getOrElse(throw new RuntimeException("can't get node number? Have you initialized?"))
-
     new CachedDistriDataSet[T](
         sc.parallelize(localData, Engine.partitionNumber.get)
         .coalesce(Engine.partitionNumber().get, true)

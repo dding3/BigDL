@@ -338,6 +338,22 @@ object Engine {
     Some(sc)
   }
 
+  var default: ThreadPool = initDefaultThreadPool()
+
+  var compute: ThreadPool = initComputeThreadPool()
+  
+  private def initDefaultThreadPool() = {
+    val defaultPoolSize: Int =
+      System.getProperty("bigdl.utils.Engine.defaultPoolSize",
+        (physicalCoreNumber * 50).toString).toInt
+    new ThreadPool(defaultPoolSize)
+  }
+  
+  private def initComputeThreadPool() = {
+    val poolSize: Int = Runtime.getRuntime().availableProcessors() / 2
+    new ThreadPool(poolSize * 50)
+  }
+
   def init(
     node: Int, // need remove it
     partitionNum: Int = -1,

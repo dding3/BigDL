@@ -101,11 +101,11 @@ object TrainTest {
         mm,
         dataSet,
         new MSECriterion[Double]())
-        .setOptimMethod(new Adagrad())
+        .setOptimMethod(new SGD[Double]())
 //        .setEndWhen(Trigger.maxIteration(2))
       val model = optimizer.optimize()
 
-      println("model: " + model.getParameters()._1)
+      println("model2: " + model.getParameters()._1)
     })
   }
 }
