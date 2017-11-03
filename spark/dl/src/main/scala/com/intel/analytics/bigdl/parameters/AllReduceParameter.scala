@@ -32,7 +32,7 @@ import scala.reflect._
 
 object AllReduceParameter {
   private val syncPoolSize: Int = System.getProperty("bigdl.Parameter.syncPoolSize", "4").toInt
-
+  println("syncpoolsize: " + syncPoolSize)
   val logger: Logger = Logger.getLogger(getClass)
   val syncPool: ExecutorService = Executors.newFixedThreadPool(syncPoolSize, new ThreadFactory {
     override def newThread(r: Runnable): Thread = {

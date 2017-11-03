@@ -22,10 +22,12 @@ import java.nio.ByteBuffer
 import org.apache.spark.SparkEnv
 import org.apache.spark.util.io.ChunkedByteBuffer
 
+import java.util.concurrent.ConcurrentHashMap
 import scala.reflect.ClassTag
+import scala.util.Random
 
 object BlockManagerWrapper {
-
+  val map = new ConcurrentHashMap[String, BlockManagerId]()  
   def putBytes( blockId: BlockId,
                 bytes: ByteBuffer,
                 level: StorageLevel): Unit = {
@@ -59,8 +61,26 @@ object BlockManagerWrapper {
     if (maybeLocalBytes.isDefined) {
       maybeLocalBytes
     } else {
-      SparkEnv.get.blockManager.getRemoteBytes(blockId).map(_.toByteBuffer)
+      if (maybeLocalBytes.isDefined) {
+        maybeLocalBytes
+      } else {
+        if (!map.containsKey(blockId.toString)) {
+          map.put(blockId.toString, getLocations(blockId).head)
+        }
+
+      val loc = map.get(blockId.toString)
+      val data = SparkEnv.get.blockManager.blockTransferService.fetchBlockSync(
+          loc.host, loc.port, loc.executorId, blockId.toString).nioByteBuffer()
+      Some(new ChunkedByteBuffer(data)).map(_.toByteBuffer)
+        //      SparkEnv.get.blockManager.getRemoteBytes(blockId).map(_.toByteBuffer)
+      }
     }
+  }
+
+  private def getLocations(blockId: BlockId): Seq[BlockManagerId] = {
+    val locs = Random.shuffle(SparkEnv.get.blockManager.master.getLocations(blockId))
+    val (preferredLocs, otherLocs) = locs.partition { loc => SparkEnv.get.blockManager.blockManagerId.host == loc.host }
+    preferredLocs ++ otherLocs
   }
 
   def unlock(blockId : BlockId): Unit = {
