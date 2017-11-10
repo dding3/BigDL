@@ -297,17 +297,16 @@ object DistriOptimizer {
             }
 
             Iterator.single((finishedThreads.size, lossSum, recordsNum))
-          })
-        val finishedModelsWithKey = finishedModels.flatMap { out =>
+          }).flatMap { out =>
             // Emit one key per partition of dummyRDD
             (0 until Engine.nodeNumber()).map { p =>
               (p, out)
             }
           }.groupByKey(dummyPartitioner)
 
-        val putGradients = if (partitionNum != Engine.nodeNumber()) {
-          finishedModelsWithKey.mapPartitions { iter =>
-            if (iter.hasNext) {
+        val putGradients =
+          finishedModels.mapPartitions { iter =>
+            if (iter.hasNext && partitionNum != Engine.nodeNumber()) {
               val executorId = SparkEnv.get.executorId
               val parameters = AllReduceParameterManager.get(pid, executorId).get
               var t = System.nanoTime()
@@ -332,7 +331,6 @@ object DistriOptimizer {
               Iterator.empty
             }
           }.partitionBy(dummyPartitioner).values
-        } else finishedModels
 
         val aggregatedModels = putGradients.mapPartitions { iter =>
           val outIter = if (iter.hasNext) {
