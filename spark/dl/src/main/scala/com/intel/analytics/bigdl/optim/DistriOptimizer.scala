@@ -18,11 +18,11 @@ package com.intel.analytics.bigdl.optim
 
 import com.intel.analytics.bigdl.{Module, _}
 import com.intel.analytics.bigdl.dataset.{DistributedDataSet, MiniBatch}
-import com.intel.analytics.bigdl.parameters.{FutureResult, AllReduceParameterManager}
+import com.intel.analytics.bigdl.parameters.{AllReduceParameterManager, FutureResult}
 import com.intel.analytics.bigdl.nn.{Container, Module, Utils}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
-import com.intel.analytics.bigdl.utils._
+import com.intel.analytics.bigdl.utils.{Engine, _}
 import java.io.{File, FileFilter, FilenameFilter}
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -30,7 +30,7 @@ import java.util.Calendar
 import org.apache.commons.lang.exception.ExceptionUtils
 import com.intel.analytics.bigdl.visualization.{TrainSummary, ValidationSummary}
 import org.apache.log4j.Logger
-import org.apache.spark.{SparkEnv, TaskContext, HashPartitioner}
+import org.apache.spark.{HashPartitioner, SparkEnv, TaskContext}
 import org.apache.spark.rdd.{CoalescedWithLocalityRDD, RDD, ZippedPartitionsWithLocalityRDD}
 import org.apache.spark.scheduler.JobRunnerWrapper
 
@@ -218,11 +218,12 @@ object DistriOptimizer {
 
             // ======================Start train models===================================
             var time = System.nanoTime()
-            if(dropPercentage > 0 && iteration > warmupIterationNum + computeThresholdbatchSize - 1) {
+            if(dropPercentage > 0 &&
+              curIter > warmupIterationNum + computeThresholdbatchSize - 1) {
               timeout = threshold - weightSyncTime
             }
             val lossArray = new Array[Double](_subModelNumber)
-            val pre = (iteration % computeThresholdbatchSize) * _subModelNumber
+            val pre = (curIter % computeThresholdbatchSize) * _subModelNumber
             val trainingThreads = Engine.default.invokeAndWait2((0 until _subModelNumber).map(i =>
               () => {
                 val trainStart = System.nanoTime()
@@ -296,39 +297,42 @@ object DistriOptimizer {
             }
 
             Iterator.single((finishedThreads.size, lossSum, recordsNum))
-          }).flatMap { out =>
+          })
+        val finishedModelsWithKey = finishedModels.flatMap { out =>
             // Emit one key per partition of dummyRDD
             (0 until Engine.nodeNumber()).map { p =>
               (p, out)
             }
           }.groupByKey(dummyPartitioner)
 
-        val putGradients = finishedModels.mapPartitions { iter =>
-          if (iter.hasNext && partitionNum != Engine.nodeNumber()) {
-            val executorId = SparkEnv.get.executorId
-            val parameters = AllReduceParameterManager.get(pid, executorId).get
-            var t = System.nanoTime()
-            val gradient = parameters.aggregateLocalGradient()
-            driverMetrics.add("aggregate local gradient", System.nanoTime() - t)
+        val putGradients = if (partitionNum != Engine.nodeNumber()) {
+          finishedModelsWithKey.mapPartitions { iter =>
+            if (iter.hasNext) {
+              val executorId = SparkEnv.get.executorId
+              val parameters = AllReduceParameterManager.get(pid, executorId).get
+              var t = System.nanoTime()
+              val gradient = parameters.aggregateLocalGradient()
+              driverMetrics.add("aggregate local gradient", System.nanoTime() - t)
 
-            t = System.nanoTime()
-            parameters.putGradientsExecutor(gradient)
-            driverMetrics.add("put gradient", System.nanoTime() - t)
+              t = System.nanoTime()
+              parameters.putGradientsExecutor(gradient)
+              driverMetrics.add("put gradient", System.nanoTime() - t)
 
-            val modelValues = iter.map(_._2).next()
-            assert(iter.isEmpty) // Should be only 1 key per partition
-            val finishedModelNum = modelValues.map(x => x._1).sum
-            val lossSum = modelValues.map(_._2).sum
-            val recordNumSum = modelValues.map(_._3).sum
-            
-            // Emit one key per partition of dummyRDD
-            (0 until Engine.nodeNumber()).map { p =>
-              (p, (finishedModelNum, lossSum, recordNumSum))
-            }.iterator
-          } else {
-            Iterator.empty
-          }
-        }.partitionBy(dummyPartitioner).values
+              val modelValues = iter.map(_._2).next()
+              assert(iter.isEmpty) // Should be only 1 key per partition
+              val finishedModelNum = modelValues.map(x => x._1).sum
+              val lossSum = modelValues.map(_._2).sum
+              val recordNumSum = modelValues.map(_._3).sum
+
+              // Emit one key per partition of dummyRDD
+              (0 until Engine.nodeNumber()).map { p =>
+                (p, (finishedModelNum, lossSum, recordNumSum))
+              }.iterator
+            } else {
+              Iterator.empty
+            }
+          }.partitionBy(dummyPartitioner).values
+        } else finishedModels
 
         val aggregatedModels = putGradients.mapPartitions { iter =>
           val outIter = if (iter.hasNext) {
