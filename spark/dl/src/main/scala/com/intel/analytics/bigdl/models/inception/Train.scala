@@ -103,7 +103,10 @@ object TrainInceptionV1 {
  //           SGD.EpochDecayWithWarmUp(warmUpIteration, delta, decay))
          SGD.PolyWithWarmUp(warmUpIteration, delta,
            0.5, math.ceil(1281167.toDouble / param.batchSize).toInt * param.maxEpoch.get),
-          gradientClipMax = param.gradientClipMax)
+          gradientClipMax = param.gradientClipMax
+//          gradientMax = param.gradientMax,
+//          gradientMin = param.gradientMin
+        )
         if (param.resumeEpoch.isDefined) {
           val resumeEpoch = param.resumeEpoch.get
           val neval = (resumeEpoch - 1) * iterationsPerEpoch + 1
@@ -147,16 +150,16 @@ object TrainInceptionV1 {
 
       val logdir = "imagenet"
       val appName = s"${sc.applicationId}"
-      val trainSummary = TrainSummary(logdir, appName)
-      trainSummary.setSummaryTrigger("LearningRate", Trigger.severalIteration(1))
-      trainSummary.setSummaryTrigger("gradientNorm2", Trigger.severalIteration(1))
-      trainSummary.setSummaryTrigger("Parameters", Trigger.severalIteration(10))
-      val validationSummary = ValidationSummary(logdir, appName)
+//      val trainSummary = TrainSummary(logdir, appName)
+//      trainSummary.setSummaryTrigger("LearningRate", Trigger.severalIteration(1))
+//      trainSummary.setSummaryTrigger("gradientNorm2", Trigger.severalIteration(1))
+//      trainSummary.setSummaryTrigger("Parameters", Trigger.severalIteration(10))
+//      val validationSummary = ValidationSummary(logdir, appName)
 
       optimizer
         .setOptimMethod(optimMethod)
-        .setTrainSummary(trainSummary)
-        .setValidationSummary(validationSummary)
+//        .setTrainSummary(trainSummary)
+//        .setValidationSummary(validationSummary)
         .setValidation(testTrigger,
           valSet, Array(new Top1Accuracy[Float], new Top5Accuracy[Float]))
         .setEndWhen(endTrigger)

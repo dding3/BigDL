@@ -16,7 +16,7 @@
 package com.intel.analytics.bigdl.parameters
 
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.{Callable, Executors, ExecutorService, Future, ThreadFactory}
+import java.util.concurrent._
 
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
@@ -28,6 +28,7 @@ import org.apache.spark.storage.{BlockId, BlockManagerWrapper, StorageLevel}
 import org.apache.spark.TaskContext
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
 import scala.reflect._
 
 object AllReduceParameter {
@@ -148,15 +149,18 @@ class AllReduceParameter[T: ClassTag](id: Long, partitionNum: Int, size: Int) ex
     BlockManagerWrapper.removeBlock(getGradientPartitionId())
     BlockManagerWrapper.putSingle(getGradientPartitionId(),
       _gradients, StorageLevel.MEMORY_AND_DISK, tellMaster = false)
-    val blockId = getWeightBlockId(partitionId)
-    val fp16param = new FP16CompressedTensor[T](length)(_classTag)
-    fp16param.compress(0, parameter, start, length)
-    BlockManagerWrapper.putBytes(blockId, fp16param.bytes(), StorageLevel.MEMORY_ONLY_SER)
+//    val blockId = getWeightBlockId(partitionId)
+//    val fp16param = new FP16CompressedTensor[T](length)(_classTag)
+//    fp16param.compress(0, parameter, start, length)
+//    BlockManagerWrapper.putBytes(blockId, fp16param.bytes(), StorageLevel.MEMORY_ONLY_SER)
     (start, length)
   }
 
-  private def getWeightBlockId(pid: Int): BlockId = {
-    SparkExtension.getLocalBlockId(id + "weightBytes" + pid)
+//  private def getWeightBlockId(pid: Int): BlockId = {
+//    SparkExtension.getLocalBlockId(id + "weightBytes" + pid)
+//  }
+  private def getWeightBlockId(pid: Int, iter: Int = 0): BlockId = {
+    SparkExtension.getLocalBlockId(id + "weightBytes" + pid + "iter" + iter)
   }
 
   private def getWeightPartitionId(): BlockId = {
@@ -179,21 +183,54 @@ class AllReduceParameter[T: ClassTag](id: Long, partitionNum: Int, size: Int) ex
    * @param localParameter The Tensor that will hold the retrieved weights.
    * @return A [[FutureResult]] which contains a [[Future]] for each thread.
    */
-  def getWeights(localParameter: Tensor[T]): FutureResult[Int] = {
-    val tasks = (0 until partitionNum).map { pid =>
+//  def getWeights(localParameter: Tensor[T]): FutureResult[Int] = {
+//    val tasks = (0 until partitionNum).map { pid =>
+//      syncPool.submit {
+//        new Callable[Int] {
+//          override def call(): Int = {
+//            try {
+//              val blockId = getWeightBlockId(pid)
+//              val localBuffer = BlockManagerWrapper.getLocalOrRemoteBytes(blockId).getOrElse {
+//                throw new RuntimeException(s"Didn't find weight block $blockId in the block " +
+//                  s"manager. Did you initialize this AllReduceParameter on every executor?")
+//              }
+//              val start = pid * taskSize + math.min(pid, extraSize)
+//              val length = taskSize + (if (pid < extraSize) 1 else 0)
+//              require(localBuffer.array().length == length * 2)
+//              SerializerInstance.serialize(localBuffer).deCompress(0, localParameter, start, length)
+//              BlockManagerWrapper.unlock(blockId)
+//              pid
+//            } catch {
+//              case t: Throwable =>
+//                logger.error("Error: " + ExceptionUtils.getStackTrace(t))
+//                throw t
+//            }
+//          }
+//        }
+//      }
+//    }
+//    new FutureResult(tasks)
+//  }
+
+  def getWeights(localParameter: Tensor[T], iter: Int): FutureResult[Int] = {
+//    val hashmap = new ConcurrentHashMap[Int, BlockId]()
+    val tasks = new ArrayBuffer[Future[Int]]()
+    val tasks2 = (0 until partitionNum).map { pid =>
       syncPool.submit {
         new Callable[Int] {
           override def call(): Int = {
             try {
-              val blockId = getWeightBlockId(pid)
-              val localBuffer = BlockManagerWrapper.getLocalOrRemoteBytes(blockId).getOrElse {
-                throw new RuntimeException(s"Didn't find weight block $blockId in the block " +
-                  s"manager. Did you initialize this AllReduceParameter on every executor?")
+              val blockId = getWeightBlockId(pid, iter)
+              var localBuffer = BlockManagerWrapper.getLocalOrRemoteBytes(blockId)
+              while (!localBuffer.isDefined) {
+                localBuffer = BlockManagerWrapper.getLocalOrRemoteBytes(blockId)
               }
+//              println(s"get1 block: ${blockId}")
               val start = pid * taskSize + math.min(pid, extraSize)
               val length = taskSize + (if (pid < extraSize) 1 else 0)
-              require(localBuffer.array().length == length * 2)
-              SerializerInstance.serialize(localBuffer).deCompress(0, localParameter, start, length)
+              require(localBuffer.get.array().length == length * 2)
+              SerializerInstance.serialize(localBuffer.get)
+                .deCompress(0, localParameter, start, length)
               BlockManagerWrapper.unlock(blockId)
               pid
             } catch {
@@ -205,6 +242,41 @@ class AllReduceParameter[T: ClassTag](id: Long, partitionNum: Int, size: Int) ex
         }
       }
     }
+  
+  tasks ++= tasks2
+//  while (!hashmap.isEmpty()) {
+//    val it = hashmap.keySet().iterator()
+//    while (it.hasNext()) {
+//      val pid = it.next();
+//      val blockId = hashmap.get(pid)
+//      hashmap.remove(pid)
+//      tasks += syncPool.submit {
+//        new Callable[Int] {
+//          override def call(): Int = {
+//            try {
+//              val localBuffer = BlockManagerWrapper.getLocalOrRemoteBytes(blockId)
+//              if (localBuffer.isDefined) {
+//                println(s"get2 blockId: ${blockId} ")
+//                val start = pid * taskSize + math.min(pid, extraSize)
+//                val length = taskSize + (if (pid < extraSize) 1 else 0)
+//                require(localBuffer.get.array().length == length * 2)
+//                SerializerInstance.serialize(localBuffer.get)
+//                  .deCompress(0, localParameter, start, length)
+//                BlockManagerWrapper.unlock(blockId)
+//              } else {
+//                hashmap.put(pid, blockId)
+//              }
+//              pid
+//            } catch {
+//              case t: Throwable =>
+//                logger.error("Error: " + ExceptionUtils.getStackTrace(t))
+//                throw t
+//            }
+//          }
+//        }
+//      }
+//    }
+//  }
     new FutureResult(tasks)
   }
 
@@ -291,18 +363,22 @@ class AllReduceParameter[T: ClassTag](id: Long, partitionNum: Int, size: Int) ex
    * Put the portion of the weights that this partition is responsible for to the block manager.
    * Weights are placed locally, then pulled when needed by other partitions.
    */
-  def sendWeightPartition(): Unit = {
-    val blockId = getWeightBlockId(partitionId)
+  def sendWeightPartition(iter: Int): Unit = {
+    val lastBlockId = getWeightBlockId(partitionId, iter - 1)
+    val blockId = getWeightBlockId(partitionId, iter)
+//    println(s"put blockId: ${blockId}")
+    BlockManagerWrapper.putBytes(blockId,
+      SerializerInstance.serialize(weightPartition).bytes(), StorageLevel.MEMORY_ONLY_SER)
+    
     val weightsId = getWeightPartitionId()
     require(weightPartition != null, "Cannot send the weights for this partition until they have" +
       " been updated by the optimizer!")
-    BlockManagerWrapper.removeBlock(blockId)
+    BlockManagerWrapper.removeBlock(lastBlockId)
     BlockManagerWrapper.unlock(weightsId)
     BlockManagerWrapper.removeBlock(weightsId)
+//    println(s"put weightPartition: ${partitionId} value: ${weightPartition.toString}")
     BlockManagerWrapper.putSingle(weightsId,
       weightPartition, StorageLevel.MEMORY_AND_DISK, tellMaster = false)
-    BlockManagerWrapper.putBytes(blockId,
-      SerializerInstance.serialize(weightPartition).bytes(), StorageLevel.MEMORY_ONLY_SER)
   }
 }
 

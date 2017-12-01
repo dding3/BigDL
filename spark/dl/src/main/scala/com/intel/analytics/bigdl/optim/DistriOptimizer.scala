@@ -19,7 +19,7 @@ package com.intel.analytics.bigdl.optim
 import com.intel.analytics.bigdl.{Module, _}
 import com.intel.analytics.bigdl.dataset.{DistributedDataSet, MiniBatch}
 import com.intel.analytics.bigdl.nn.{Module, Utils}
-import com.intel.analytics.bigdl.parameters.AllReduceParameter
+import com.intel.analytics.bigdl.parameters.{AllReduceParameter, FutureResult}
 import com.intel.analytics.bigdl.tensor.Tensor
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.utils._
@@ -152,6 +152,10 @@ object DistriOptimizer {
     var epochStart = System.nanoTime()
     var dataRDD = dataset.data(train = true)
     var recordsProcessedThisEpoch = 0
+
+    var value = 1.0
+    var gradientNorm2 = 0.0f
+    
     while (!endWhen(driverState)) {
       val lossSum = sc.accumulator(0.0, "loss sum")
       val recordsNum = sc.accumulator(0, "record number")
@@ -165,7 +169,7 @@ object DistriOptimizer {
       metrics.set("compute gradient average", 0.0, sc, Engine.nodeNumber())
       metrics.set("update weights average", 0.0, sc, Engine.nodeNumber())
       metrics.set("send weights average", 0.0, sc, Engine.nodeNumber())
-
+      
       val driverMetrics = metrics
       val start = System.nanoTime()
 
@@ -177,11 +181,29 @@ object DistriOptimizer {
         .zipPartitions(models, preservesPartitioning = true) { (data, modelIter) => {
           val cached = modelIter.next()
           val syWStart = System.nanoTime()
+
+          var weightsResult: FutureResult[Int] = null
+                    if (iteration > 0) {
+                      cached.optimMethod.state.update("gradientNorm2", gradientNorm2)
+                      var time2 = System.nanoTime()
+                      cached.optimMethod.optimize(_ =>
+                        (ev.fromType(value), parameters.gradientPartition),
+                        parameters.weightPartition)
+                      driverMetrics.add("update weights average", System.nanoTime() - time2)
+
+                      time2 = System.nanoTime()
+                      parameters.sendWeightPartition(iteration)
+                      driverMetrics.add("send weights average", System.nanoTime() - time2)
+
+                      weightsResult = parameters.getWeights(cached.modelWeights.head, iteration)
+                    }
+                    
+          
           /*
             Note: All models in `cached` share the same storage for weights, so we only need to
             copy the weights from parameter server into the first model's weights.
            */
-          val weightsResult = parameters.getWeights(cached.modelWeights.head)
+          
           val miniBatchBuffer = new Array[MiniBatch[T]](_subModelNumber)
           val batch = data.next()
           val stackSize = batch.size() / _subModelNumber
@@ -201,7 +223,12 @@ object DistriOptimizer {
             }
           })
           Engine.default.sync(tasks)
-          weightsResult.waitResult()
+          if (weightsResult != null) {
+            weightsResult.waitResult()
+          }
+
+//          println(s"new weights: ${cached.modelWeights.head.toString}")
+          
           val weightSyncTime = System.nanoTime() - syWStart
           driverMetrics.add("get weights average", weightSyncTime)
           driverMetrics.add("get weights for each node", weightSyncTime)
@@ -291,7 +318,7 @@ object DistriOptimizer {
       if (dropPercentage == 0.0 ||
         numFinishedModelUpdates >= driverSubModelNum * (1.0 - maxDropPercentage)) {
         // enough records were processed for this batch, so update the model
-        val value = lossSum.value / numFinishedModelUpdates
+        value = lossSum.value / numFinishedModelUpdates
 
         val gradientSumSquare = models.mapPartitions(modelIter => {
           val getG = System.nanoTime()
@@ -300,32 +327,45 @@ object DistriOptimizer {
             System.nanoTime() - getG)
           val time = System.nanoTime()
           parameters.gradientPartition.div(ev.fromType(numFinishedModelUpdates))
+          val sum = parameters.gradientPartition.sumSquare()
           driverMetrics.add("compute gradient average", System.nanoTime() - time)
-          Iterator.single(ev.toType[Double](parameters.gradientPartition.sumSquare()))
+
+                    val modelCache = modelIter.next()
+                    modelCache.optimMethod.state.update("epoch", driverState[Int]("epoch"))
+                    modelCache.optimMethod.state.update("neval", driverState[Int]("neval"))
+                    modelCache.optimMethod.state.update("Loss", driverState[Float]("Loss"))
+                    if (validationMethods.isDefined) {
+                      modelCache.optimMethod.state.update("score", driverState[Float]("score"))
+                    }
+
+          Iterator.single(ev.toType[Double](sum))
         }).reduce(_ + _)
 
-        val gradientNorm2 = math.sqrt(gradientSumSquare).toFloat
+        gradientNorm2 = math.sqrt(gradientSumSquare).toFloat
         driverState("gradientNorm2") = gradientNorm2
 
-        models.mapPartitions { modelIter =>
-          val modelCache = modelIter.next()
-          modelCache.optimMethod.state.update("gradientNorm2", gradientNorm2)
-          modelCache.optimMethod.state.update("epoch", driverState[Int]("epoch"))
-          modelCache.optimMethod.state.update("neval", driverState[Int]("neval"))
-          modelCache.optimMethod.state.update("Loss", driverState[Float]("Loss"))
-          if (validationMethods.isDefined) {
-            modelCache.optimMethod.state.update("score", driverState[Float]("score"))
-          }
-          var time = System.nanoTime()
-          modelCache.optimMethod.optimize(_ => (ev.fromType(value), parameters.gradientPartition),
-            parameters.weightPartition)
-          driverMetrics.add("update weights average", System.nanoTime() - time)
-
-          time = System.nanoTime()
-          parameters.sendWeightPartition()
-          driverMetrics.add("send weights average", System.nanoTime() - time)
-          Iterator.empty
-        }.count()
+//        models.mapPartitions { modelIter =>
+//          val modelCache = modelIter.next()
+//          modelCache.optimMethod.state.update("gradientNorm2", gradientNorm2)
+////          parameters.aggregateGradientPartition()
+////          parameters.gradientPartition.div(ev.fromType(numFinishedModelUpdates))
+//
+//          modelCache.optimMethod.state.update("epoch", driverState[Int]("epoch"))
+//          modelCache.optimMethod.state.update("neval", driverState[Int]("neval"))
+//          modelCache.optimMethod.state.update("Loss", driverState[Float]("Loss"))
+//          if (validationMethods.isDefined) {
+//            modelCache.optimMethod.state.update("score", driverState[Float]("score"))
+//          }
+//          var time = System.nanoTime()
+//          modelCache.optimMethod.optimize(_ => (ev.fromType(value), parameters.gradientPartition),
+//            parameters.weightPartition)
+//          driverMetrics.add("update weights average", System.nanoTime() - time)
+//
+//          time = System.nanoTime()
+//          parameters.sendWeightPartition()
+//          driverMetrics.add("send weights average", System.nanoTime() - time)
+//          Iterator.empty
+//        }.count()
 
         recordsProcessedThisEpoch += recordsNum.value
         val end = System.nanoTime()
@@ -344,8 +384,9 @@ object DistriOptimizer {
           driverState[Int]("neval"), wallClockTime)
         logger.info(s"${_header} Trained ${recordsNum.value} records in ${(end - start) / 1e9} " +
           s"seconds. Throughput is ${driverState("Throughput")} records/second. Loss is ${
-            driverState("Loss")}. ${optimMethod.getHyperParameter()}")
-        logger.debug("\n" + metrics.summary())
+            driverState("Loss")}. global gradientNorm2: ${gradientNorm2}" +
+          s". ${optimMethod.getHyperParameter()}.")
+        logger.info("\n" + metrics.summary())
         logger.debug("Dropped modules: " + (driverSubModelNum - numFinishedModelUpdates))
         lossArray = new Array[Double](_subModelNumber)
 
@@ -432,7 +473,21 @@ object DistriOptimizer {
           s"completed training.")
       }
     }
-  }
+
+    models.mapPartitions { iter =>
+      val cached = iter.next()
+      cached.optimMethod.state.update("gradientNorm2", gradientNorm2)
+      cached.optimMethod.optimize(_ =>
+        (ev.fromType(value), parameters.gradientPartition),
+        parameters.weightPartition)
+      
+      parameters.sendWeightPartition(iteration)
+      Iterator.empty
+    }.count()
+      
+      
+
+    }
 
   /**
    * Create checkpoint.

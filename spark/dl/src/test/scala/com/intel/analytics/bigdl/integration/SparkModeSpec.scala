@@ -26,11 +26,11 @@ class SparkModeSpec extends FlatSpec with Matchers with BeforeAndAfter{
   val mnistFolder = System.getProperty("mnist")
   val cifarFolder = System.getProperty("cifar")
 
-  "Lenet model train and validate" should "be correct" in {
-    val batchSize = 8
-    val args = Array("--folder", mnistFolder, "-b", batchSize.toString, "-e", "1")
-    lenet.Train.main(args)
-  }
+//  "Lenet model train and validate" should "be correct" in {
+//    val batchSize = 8
+//    val args = Array("--folder", mnistFolder, "-b", batchSize.toString, "-e", "1")
+//    lenet.Train.main(args)
+//  }
 
   "Vgg model train and validate" should "be correct" in {
     val batchSize = 8

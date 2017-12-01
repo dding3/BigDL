@@ -108,7 +108,7 @@ class DistriOptimizerSpec extends FlatSpec with Matchers with BeforeAndAfter {
   private var dataSet: DistributedDataSet[MiniBatch[Double]] = _
 
   before {
-    sc = new SparkContext("local[1]", "RDDOptimizerSpec")
+    sc = new SparkContext("local[4]", "RDDOptimizerSpec")
 
     val rdd = sc.parallelize(1 to (256 * nodeNumber), nodeNumber).map(prepareData)
 
@@ -187,9 +187,11 @@ class DistriOptimizerSpec extends FlatSpec with Matchers with BeforeAndAfter {
       dataSet,
       new MSECriterion[Double]())
       .setOptimMethod(new LBFGS)
+//      .setEndWhen(Trigger.maxIteration(2))
     val model = optimizer.optimize()
 
     val result1 = model.forward(input1).asInstanceOf[Tensor[Double]]
+    println(s"result: ${result1}")
     result1(Array(1)) should be(0.0 +- 1e-2)
 
     val result2 = model.forward(input2).asInstanceOf[Tensor[Double]]

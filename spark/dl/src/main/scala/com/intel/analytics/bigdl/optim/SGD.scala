@@ -19,7 +19,7 @@ package com.intel.analytics.bigdl.optim
 import com.intel.analytics.bigdl.optim.SGD.{Default, LearningRateSchedule}
 import com.intel.analytics.bigdl.tensor.TensorNumericMath.TensorNumeric
 import com.intel.analytics.bigdl.tensor.Tensor
-import com.intel.analytics.bigdl.utils.{T, Table}
+import com.intel.analytics.bigdl.utils.{Engine, T, Table}
 import org.apache.log4j.Logger
 
 import scala.reflect.ClassTag
@@ -110,16 +110,26 @@ class SGD[@specialized(Float, Double) T: ClassTag](
           logger.warn(s"gradient is ${dfdx}")
           val scale = ev.fromType[Double](gradientClipMax / dfdxNorm2)
           dfdx.mul(scale)
+          
+//          val size = dfdx.nElement()
+//
+//          val taskSize = size / 44
+//          val extraTask = size % 44
+//          Engine.default.invokeAndWait((0 until 44).map(tid => () => {
+//            val offset = tid * taskSize + math.min(tid, extraTask)
+//            val length = taskSize + (if (tid < extraTask) 1 else 0)
+//            dfdx.narrow(1, offset + 1, length).mul(scale)
+//          }))
         }
       }
 //      state("historyCounter") = historyCounter + 1
 //    }
-      val afterNorm2 = ev.toType[Double](dfdx.norm(2))
-      if (afterNorm2 != dfdxNorm2) {
-        logger.info(s"[Iteration ${state("neval")}] Normalize this gradient," +
-          s" current dfdx.norm(2) = ${afterNorm2}")
-        logger.warn(s"gradient is ${dfdx}")
-      }
+//      val afterNorm2 = ev.toType[Double](dfdx.norm(2))
+//      if (afterNorm2 != dfdxNorm2) {
+//        logger.info(s"[Iteration ${state("neval")}] Normalize this gradient," +
+//          s" current dfdx.norm(2) = ${afterNorm2}")
+//        logger.warn(s"gradient is ${dfdx}")
+//      }
     }
 
     if (wd != 0 || wds != null) {
