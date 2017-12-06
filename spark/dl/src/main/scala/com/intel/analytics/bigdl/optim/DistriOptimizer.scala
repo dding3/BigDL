@@ -86,22 +86,27 @@ object DistriOptimizer {
    * @param isOverWrite  if overwrite the checkpoint
    */
   private[optim] def optimize[T: ClassTag](
-    dataset: DistributedDataSet[MiniBatch[T]],
-    coresPerNode: Int,
-    state: Table,
-    endWhen: Trigger,
-    metrics: Metrics,
-    models: RDD[Cache[T]],
-    optimMethod: OptimMethod[T],
-    parameters: AllReduceParameter[T],
-    validationTrigger: Option[Trigger],
-    validationDataSet: Option[DataSet[MiniBatch[T]]],
-    validationMethods: Option[Array[ValidationMethod[T]]],
-    cacheTrigger: Option[Trigger],
-    cachePath: Option[String],
-    trainSummary: Option[TrainSummary],
-    validationSummary: Option[ValidationSummary],
-    isOverWrite: Boolean
+                                            dataset: DistributedDataSet[MiniBatch[T]],
+                                            coresPerNode: Int,
+                                            state: Table,
+                                            endWhen: Trigger,
+                                            metrics: Metrics,
+                                            models: RDD[Cache[T]],
+                                            optimMethod: OptimMethod[T],
+                                            parameters: AllReduceParameter[T],
+                                            validationTrigger: Option[Trigger],
+                                            validationDataSet: Option[DataSet[MiniBatch[T]]],
+                                            validationMethods: Option[Array[ValidationMethod[T]]],
+                                            cacheTrigger: Option[Trigger],
+                                            cachePath: Option[String],
+                                            trainSummary: Option[TrainSummary],
+                                            validationSummary: Option[ValidationSummary],
+                                            isOverWrite: Boolean,
+                                            constantClippingEnable: Boolean,
+                                            minValueClip: Double,
+                                            maxValueClip: Double,
+                                            normClippingEnable: Boolean,
+                                            normValueClip: Double
   )(implicit ev: TensorNumeric[T]): Unit = {
     val sc = dataset.originRDD().sparkContext
     val partitionNum = dataset.originRDD().partitions.length
@@ -289,19 +294,45 @@ object DistriOptimizer {
         numFinishedModelUpdates >= driverSubModelNum * (1.0 - maxDropPercentage)) {
         // enough records were processed for this batch, so update the model
         val value = lossSum.value / numFinishedModelUpdates
+        
+        val l2Norm = if (normClippingEnable) {
+          val sumSquare = models.mapPartitions(modelIter => {
+            val getG = System.nanoTime()
+            parameters.aggregateGradientPartition()
+            driverMetrics.add("aggregrateGradientParition average executor",
+              System.nanoTime() - getG)
+            val time = System.nanoTime()
+            parameters.gradientPartition.div(ev.fromType(numFinishedModelUpdates))
+            driverMetrics.add("compute gradient average", System.nanoTime() - time)
+            Iterator.single(ev.toType[Double](parameters.gradientPartition.sumSquare()))
+          }).reduce(_ + _)
+          math.sqrt(sumSquare).toFloat
+        } else 0.0f
+        
         models.mapPartitions { modelIter =>
           val modelCache = modelIter.next()
-          val getG = System.nanoTime()
-          parameters.aggregateGradientPartition()
-          driverMetrics.add("aggregrateGradientParition average executor",
-            System.nanoTime() - getG)
-          var time = System.nanoTime()
-          parameters.gradientPartition.div(ev.fromType(numFinishedModelUpdates))
+          if (!normClippingEnable) {
+            val getG = System.nanoTime()
+            parameters.aggregateGradientPartition()
+            driverMetrics.add("aggregrateGradientParition average executor",
+              System.nanoTime() - getG)
+            var time = System.nanoTime()
+            parameters.gradientPartition.div(ev.fromType(numFinishedModelUpdates))
+          } else {
+            if (l2Norm > normValueClip) {
+              val scale = ev.fromType[Double](normValueClip / l2Norm)
+              parameters.gradientPartition.mul(scale)
+            }
+          }
           modelCache.optimMethod.state.update("epoch", driverState[Int]("epoch"))
           modelCache.optimMethod.state.update("neval", driverState[Int]("neval"))
           modelCache.optimMethod.state.update("Loss", driverState[Float]("Loss"))
           if (validationMethods.isDefined) {
             modelCache.optimMethod.state.update("score", driverState[Float]("score"))
+          }
+          // gradient clipping
+          if (constantClippingEnable) {
+            parameters.gradientPartition.clamp(minValueClip, maxValueClip)
           }
           modelCache.optimMethod.optimize(_ => (ev.fromType(value), parameters.gradientPartition),
             parameters.weightPartition)
@@ -808,7 +839,10 @@ class DistriOptimizer[T: ClassTag] (
           checkpointPath,
           trainSummary,
           validationSummary,
-          isOverWrite
+          isOverWrite,
+          constantClippingEnable,
+          minValueClip,
+          maxValueClip
         )
         retryNum = Int.MaxValue
       } catch {
