@@ -2607,6 +2607,16 @@ class PythonBigDL[T: ClassTag](implicit ev: TensorNumeric[T]) extends Serializab
   def isLocal(imageFrame: ImageFrame): Boolean = imageFrame.isLocal()
 
   def isDistributed(imageFrame: ImageFrame): Boolean = imageFrame.isDistributed()
+
+  def setConstantClip(optimizer: Optimizer[T, MiniBatch[T]],
+                      min: Float, max: Float): Unit = {
+    optimizer.setConstantGradientClipping(min, max)
+  }
+
+  def setL2NormClip(optimizer: Optimizer[T, MiniBatch[T]],
+                    normValue: Float): Unit = {
+    optimizer.setGradientClippingByNorm(normValue)
+  }
 }
 
 object PythonBigDLUtils {
