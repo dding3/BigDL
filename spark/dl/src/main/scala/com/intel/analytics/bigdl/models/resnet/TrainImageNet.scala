@@ -45,6 +45,10 @@ object TrainImageNet {
     }
   }
 
+  def imageNetDecay256(epoch: Int): Double = {
+    math.floor((epoch - 1) / 30)
+  }
+
   def main(args: Array[String]): Unit = {
     trainParser.parse(args, new TrainParams()).map(param => {
       val conf = Engine.createSparkConf().setAppName("Train ResNet on ImageNet2012")
@@ -72,7 +76,7 @@ object TrainImageNet {
         if (param.optnet) {
           ResNet.shareGradInput(curModel)
         }
-//        ResNet.modelInit(curModel)
+        ResNet.modelInit(curModel)
         curModel
       }
 
@@ -80,34 +84,13 @@ object TrainImageNet {
 
       val optimMethod = if (param.stateSnapshot.isDefined) {
         val optim = OptimMethod.load[Float](param.stateSnapshot.get).asInstanceOf[SGD[Float]]
-        val baseLr = param.learningRate
-        val iterationsPerEpoch = math.ceil(1281167 / param.batchSize).toInt
-        val warmUpIteration = iterationsPerEpoch * param.warmupEpoch
-        val maxLr = param.maxLr
-        val delta = (maxLr - baseLr) / warmUpIteration
-        optim.learningRateSchedule = SGD.EpochDecayWithWarmUp(warmUpIteration, delta, imageNetDecay)
+        optim.learningRateSchedule = SGD.EpochDecay(imageNetDecay256)
         optim
       } else {
-        val baseLr = param.learningRate
-        val iterationsPerEpoch = math.ceil(1281167 / param.batchSize).toInt
-        val warmUpIteration = iterationsPerEpoch * param.warmupEpoch
-        val maxLr = param.maxLr
-        val delta = (maxLr - baseLr) / warmUpIteration
-
-        logger.info(s"warmUpIteraion: $warmUpIteration, startLr: ${param.learningRate}, " +
-          s"maxLr: $maxLr, " +
-          s"delta: $delta, nesterov: ${param.nesterov}")
-//        new LarsSGD[Float](learningRate = param.learningRate, learningRateDecay = 0.0,
-//          momentum = param.momentum,
-////          larsLearningRateSchedule = SGD.EpochDecayWithWarmUp(warmUpIteration, delta, imageNetDecay),
-//          larsLearningRateSchedule =
-//          SGD.Poly(2, math.ceil(1281167.toDouble / param.batchSize).toInt * maxEpoch),
-//          gwRation = 0.001
-//        )
         new SGD[Float](learningRate = param.learningRate, learningRateDecay = 0.0,
           momentum = param.momentum, dampening = param.dampening,
-          nesterov = param.nesterov,
-          learningRateSchedule = SGD.EpochDecayWithWarmUp(warmUpIteration, delta, imageNetDecay))
+          nesterov = param.nesterov, weightDecay = 1e-4,
+          learningRateSchedule = SGD.EpochDecay(imageNetDecay256))
       }
 
       val optimizer = Optimizer(

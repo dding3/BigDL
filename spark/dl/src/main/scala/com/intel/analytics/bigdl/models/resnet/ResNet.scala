@@ -44,20 +44,15 @@ object Convolution {
      padH: Int = 0,
      nGroup: Int = 1,
      propagateBack: Boolean = true,
-     optnet: Boolean = true,
-     weightDecay: Double = 1e-4)
+     optnet: Boolean = true)
      (implicit ev: TensorNumeric[T]): SpatialConvolution[T] = {
-    val wReg = L2Regularizer[T](weightDecay)
-    val bReg = L2Regularizer[T](weightDecay)
     val conv = if (optnet) {
       SpatialShareConvolution[T](nInputPlane, nOutputPlane, kernelW, kernelH,
-        strideW, strideH, padW, padH, nGroup, propagateBack, wReg, bReg)
+        strideW, strideH, padW, padH, nGroup, propagateBack)
     } else {
       SpatialConvolution[T](nInputPlane, nOutputPlane, kernelW, kernelH,
-        strideW, strideH, padW, padH, nGroup, propagateBack, wReg, bReg)
+        strideW, strideH, padW, padH, nGroup, propagateBack)
     }
-    conv.setInitMethod(MsraFiller(false), Zeros)
-//    conv.setInitMethod(MsraFiller(false))
     conv
   }
 }
@@ -67,11 +62,9 @@ object Sbn {
     nOutput: Int,
     eps: Double = 1e-3,
     momentum: Double = 0.1,
-//    momentum: Double = 0.9,
     affine: Boolean = true)
   (implicit ev: TensorNumeric[T]): SpatialBatchNormalization[T] = {
-    SpatialBatchNormalization[T](nOutput, eps, momentum, affine).setInitMethod(Ones, Zeros)
-//    SpatialBatchNormalization[T](nOutput, eps, momentum, affine).setInitMethod(Ones)
+    SpatialBatchNormalization[T](nOutput, eps, momentum, affine)
   }
 }
 
@@ -208,8 +201,7 @@ object ResNet {
         .add(Sbn(n))
         .add(ReLU(true))
         .add(Convolution(n, n*4, 1, 1, 1, 1, 0, 0, optnet = optnet))
-        .add(Sbn(n * 4).setInitMethod(Zeros, Zeros))
-//        .add(Sbn(n * 4).setInitMethod(Zeros))
+        .add(Sbn(n * 4))
 
       Sequential()
         .add(ConcatTable()
@@ -261,9 +253,8 @@ object ResNet {
         .add(layer(block, 512, loopConfig._4, 2))
         .add(SpatialAveragePooling(7, 7, 1, 1))
         .add(View(nFeatures).setNumInputDims(3))
-        .add(Linear(nFeatures, classNum, true, L2Regularizer(1e-4), L2Regularizer(1e-4))
-          .setInitMethod(RandomNormal(0.0, 0.01), Zeros))
-//          .setInitMethod(RandomNormal(0.0, 0.01)))
+        .add(Linear(nFeatures, classNum, true))
+
     } else if (dataSet == DatasetType.CIFAR10) {
       require((depth - 2)%6 == 0,
         "depth should be one of 20, 32, 44, 56, 110, 1202")

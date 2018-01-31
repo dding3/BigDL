@@ -305,6 +305,7 @@ object SGD {
       currentRate = clr
     }
   }
+
   /**
    * A learning rate decay policy, where the effective learning rate
    * is calculated as base_lr * gamma `^` (floor(iter / stepSize))
