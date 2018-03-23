@@ -120,11 +120,14 @@ class Seq2seq[T: ClassTag](val encoderRecs: Array[Recurrent[T]],
   override def backward(input: Activity, gradOutput: Tensor[T]): Tensor[T] = {
     val decoderGradInput = decoder.backward(decoderInput, gradOutput).toTensor
     if (preDecoder != null) {
-//      if (preDecoderInput.dim == decoderGradInput.dim) {
-        preDecoder.backward(preDecoderInput, decoderGradInput)
-//      } else {
-//        preDecoder.backward(preDecoderInput, decoderGradInput.select(2, 1).contiguous())
-//      }
+      decoderInputType match {
+        case DecoderInputType.ENCODERINPUTSPLIT =>
+          preDecoder.backward(preDecoderInput, decoderGradInput)
+        case DecoderInputType.ENCODERINPUTLASTTIME =>
+          preDecoder.backward(preDecoderInput, decoderGradInput.select(2, 1).contiguous())
+        case _ => throw new IllegalArgumentException("Unknown decodeInput mode," +
+          "current only support ENCODERINPUTSPLIT, ENCODERINPUTLASTTIME")
+      }
     }
     if (decoderRecs.head.isInstanceOf[RecurrentDecoder[T]]) {
       val gradHiddenStates = decoderRecs.head.getGradHiddenState()
