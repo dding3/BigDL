@@ -55,6 +55,14 @@ class Seq2seq[T: ClassTag](val encoderRecs: Array[Recurrent[T]],
     Sequential().add(encoder).add(preDecoder).add(decoder)
   }
 
+  private val moduleForParam: AbstractModule[Activity, Activity, T] =
+    if (shrinkHiddenStateModules == null) module else {
+      val model = Sequential()
+      model.add(module)
+      shrinkHiddenStateModules.flatten.foreach(model.add(_))
+      model
+    }
+
   override def updateOutput(input: Activity): Tensor[T] = {
     val feedbackPreviousOutput = decoderRecs.head.isInstanceOf[RecurrentDecoder[T]]
     decoderInputType match {
@@ -120,10 +128,13 @@ class Seq2seq[T: ClassTag](val encoderRecs: Array[Recurrent[T]],
   override def backward(input: Activity, gradOutput: Tensor[T]): Tensor[T] = {
     val decoderGradInput = decoder.backward(decoderInput, gradOutput).toTensor
     if (preDecoder != null) {
-      if (preDecoderInput.dim == decoderGradInput.dim) {
-        preDecoder.backward(preDecoderInput, decoderGradInput)
-      } else {
-        preDecoder.backward(preDecoderInput, decoderGradInput.select(2, 1).contiguous())
+      decoderInputType match {
+        case DecoderInputType.ENCODERINPUTSPLIT =>
+          preDecoder.backward(preDecoderInput, decoderGradInput)
+        case DecoderInputType.ENCODERINPUTLASTTIME =>
+          preDecoder.backward(preDecoderInput, decoderGradInput.select(2, 1).contiguous())
+        case _ => throw new IllegalArgumentException("Unknown decodeInput mode," +
+          "current only support ENCODERINPUTSPLIT, ENCODERINPUTLASTTIME")
       }
     }
     if (decoderRecs.head.isInstanceOf[RecurrentDecoder[T]]) {
@@ -163,11 +174,11 @@ class Seq2seq[T: ClassTag](val encoderRecs: Array[Recurrent[T]],
   }
 
   override def parameters(): (Array[Tensor[T]], Array[Tensor[T]]) = {
-    module.parameters()
+    moduleForParam.parameters()
   }
 
   override def getParametersTable(): Table = {
-    module.getParametersTable()
+    moduleForParam.getParametersTable()
   }
   
   private def shrinkHiddenState(state: Activity,
@@ -205,6 +216,18 @@ class Seq2seq[T: ClassTag](val encoderRecs: Array[Recurrent[T]],
     }
     newGradState
   }
+
+  override def clearState() : this.type = {
+    super.clearState()
+    preDecoderInput = null
+    decoderInput = null
+    encoderInput = null
+    encoderOutput = null
+    moduleForParam.clearState()
+    this
+  }
+
+  override def reset(): Unit = moduleForParam.reset()
 }
 
 object Seq2seq extends ModuleSerializable {

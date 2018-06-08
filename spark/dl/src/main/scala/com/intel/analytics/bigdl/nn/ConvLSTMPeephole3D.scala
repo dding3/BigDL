@@ -79,12 +79,12 @@ class ConvLSTMPeephole3D[T : ClassTag](
       .add(Contiguous())
       .add(VolumetricConvolution(inputSize, outputSize, kernelI, kernelI, kernelI,
         stride, stride, stride, padding, padding, padding, wRegularizer = wRegularizer,
-        bRegularizer = bRegularizer, memoryOptim = memoryOptim).setName(name + "_i2g"))
+        bRegularizer = bRegularizer, memoryOptim = memoryOptim).setName(this.getName() + name + "_i2g"))
     val h2g = Sequential()
       .add(Contiguous())
       .add(VolumetricConvolution(outputSize, outputSize, kernelC, kernelC, kernelC,
       stride, stride, stride, padding, padding, padding, wRegularizer = uRegularizer,
-      withBias = false, memoryOptim = memoryOptim).setName(name + "_h2g"))
+      withBias = false, memoryOptim = memoryOptim).setName(this.getName() + name + "_h2g"))
 
     val gate = Sequential()
     if (withPeephole) {
@@ -128,12 +128,12 @@ class ConvLSTMPeephole3D[T : ClassTag](
       .add(Contiguous())
       .add(VolumetricConvolution(inputSize, outputSize, kernelI, kernelI, kernelI,
         stride, stride, stride, padding, padding, padding, wRegularizer = wRegularizer,
-        bRegularizer = bRegularizer, memoryOptim = memoryOptim).setName("Hidden_i2h"))
+        bRegularizer = bRegularizer, memoryOptim = memoryOptim).setName(this.getName() + "Hidden_i2h"))
     val h2h = Sequential()
       .add(Contiguous())
       .add(VolumetricConvolution(outputSize, outputSize, kernelC, kernelC, kernelC,
       stride, stride, stride, padding, padding, padding, withBias = false,
-      wRegularizer = uRegularizer, memoryOptim = memoryOptim).setName("Hidden_h2h"))
+      wRegularizer = uRegularizer, memoryOptim = memoryOptim).setName(this.getName() + "Hidden_h2h"))
 
     hidden
       .add(ParallelTable()
