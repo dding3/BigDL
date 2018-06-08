@@ -59,7 +59,7 @@ class Seq2seq[T: ClassTag](val encoderRecs: Array[Recurrent[T]],
     if (shrinkHiddenStateModules == null) module else {
       val model = Sequential()
       model.add(module)
-      shrinkHiddenStateModules.flatten.foreach(model.add(_))
+      shrinkHiddenStateModules.foreach(x => if (x != null) x.foreach(model.add(_)))
       model
     }
 
